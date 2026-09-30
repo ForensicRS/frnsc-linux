@@ -277,11 +277,27 @@ impl LastlogRecord {
         cstr_lossy(&self.ll_host_raw)
     }
     /// `ll_time == 0` is `lastlog(8)`'s own convention for "this UID has no recorded login" —
-    /// not a login that happened at the Unix epoch. An all-zero slot (no line, no host) besides
-    /// the zero timestamp is the ordinary shape of a never-populated sparse-file hole.
+    /// not a login that happened at the Unix epoch. Only true when the line and host are also
+    /// empty: that is the ordinary shape of a never-populated sparse-file hole. A zero timestamp
+    /// paired with a populated line or host is a different, more interesting case — see
+    /// [`Self::has_suspicious_zero_time`] — and is deliberately *not* folded into this filter.
     pub fn never_logged_in(&self) -> bool {
-        self.ll_time == 0
+        self.ll_time == 0 && is_all_zero(&self.ll_line_raw) && is_all_zero(&self.ll_host_raw)
     }
+
+    /// A zero timestamp with a non-empty line or host: either record corruption, or a slot whose
+    /// 4-byte `ll_time` alone was zeroed to make `lastlog(8)` itself report "never logged in"
+    /// while leaving the line/host behind — a plausible anti-forensic technique, not the ordinary
+    /// shape of an untouched sparse-file hole. Distinguishable from, and never true at the same
+    /// time as, [`Self::never_logged_in`].
+    pub fn has_suspicious_zero_time(&self) -> bool {
+        self.ll_time == 0 && !self.never_logged_in()
+    }
+}
+
+/// True when every byte in `bytes` is zero — the shape of an untouched slot's line/host fields.
+fn is_all_zero(bytes: &[u8]) -> bool {
+    bytes.iter().all(|&b| b == 0)
 }
 
 /// Parses one [`LASTLOG_RECORD_SIZE`]-byte slot at UID `uid`. Bounds-checked throughout via
@@ -429,7 +445,11 @@ fn record_timestamp(tv_sec: i64, tv_usec: i64) -> Option<ForensicTimestamp> {
 /// [`forensic_rs::pipeline::processor`]). Every whole `utmp`/`wtmp`/`btmp` record is emitted,
 /// including `EMPTY`-type slots: this parser does not filter by type. A `lastlog` slot with
 /// [`LastlogRecord::never_logged_in`] is the one case that is filtered, because it is the
-/// format's own "no data here" marker, not a login event.
+/// format's own "no data here" marker, not a login event. A slot with
+/// [`LastlogRecord::has_suspicious_zero_time`] — a zero timestamp that is *not* accompanied by an
+/// empty line/host, unlike a genuine never-logged-in slot — is never filtered: it is emitted both
+/// as an `Err` item (surfaced to the analyst as a `Finding`) and as its own record, so the
+/// possible tampering is visible and the underlying data is not lost either way.
 pub struct UtmpParserFactory {
     descriptor: ParserDescriptor,
 }
@@ -567,6 +587,25 @@ impl ArtifactParserFactory for UtmpParserFactory {
                         match record {
                             Ok(record) if record.never_logged_in() => continue,
                             Ok(record) => {
+                                if record.has_suspicious_zero_time() {
+                                    let anomaly = ForensicError::other(
+                                        "lastlog anomaly",
+                                        format!(
+                                            "{}: uid {} has ll_time == 0 (lastlog(8)'s own \"never \
+                                             logged in\" marker) but a non-empty line/host \
+                                             ({:?}/{:?}); not filtered as never-logged-in because a \
+                                             genuinely untouched slot has line and host empty too",
+                                            path,
+                                            record.uid,
+                                            record.line(),
+                                            record.host()
+                                        ),
+                                    )
+                                    .with_path(path.clone());
+                                    if out.emit(Err(anomaly)).is_stop() {
+                                        return Ok(());
+                                    }
+                                }
                                 let data = lastlog_to_forensic_data(
                                     &host,
                                     definition,
@@ -659,6 +698,28 @@ fn read_file(fs: &dyn FileSystem, path: &FPath) -> ForensicResult<Vec<u8>> {
     Ok(bytes)
 }
 
+/// Crate-local `linux.utmp.*` field names. Not ECS, so the dictionary rule doesn't apply, but
+/// they are restated across [`utmp_to_forensic_data`], [`lastlog_to_forensic_data`] and the
+/// tests, so they are named once here rather than scattered as inline literals.
+mod field {
+    pub const LAYOUT: &str = "linux.utmp.layout";
+    pub const TYPE: &str = "linux.utmp.type";
+    pub const TYPE_NAME: &str = "linux.utmp.type_name";
+    pub const LINE: &str = "linux.utmp.line";
+    pub const LINE_RAW: &str = "linux.utmp.line_raw";
+    pub const ID_RAW: &str = "linux.utmp.id_raw";
+    pub const USER_RAW: &str = "linux.utmp.user_raw";
+    pub const HOST_RAW: &str = "linux.utmp.host_raw";
+    pub const TERMINATION_STATUS: &str = "linux.utmp.termination_status";
+    pub const EXIT_STATUS: &str = "linux.utmp.exit_status";
+    pub const SESSION: &str = "linux.utmp.session";
+    pub const TV_SEC: &str = "linux.utmp.tv_sec";
+    pub const TV_USEC: &str = "linux.utmp.tv_usec";
+    pub const ADDR_V6: &str = "linux.utmp.addr_v6";
+    pub const RECORD_TYPE: &str = "linux.utmp.record_type";
+    pub const LASTLOG_UID: &str = "linux.utmp.lastlog.uid";
+}
+
 fn utmp_to_forensic_data(
     host: &str,
     definition: &'static str,
@@ -672,33 +733,30 @@ fn utmp_to_forensic_data(
     data.set(ARTIFACT_PATH, path.as_str().to_string());
     data.set(ARTIFACT_DEFINITION, definition);
     data.set(
-        "linux.utmp.layout",
+        field::LAYOUT,
         match record.layout {
             UtmpLayout::Narrow32 => "narrow32",
             UtmpLayout::Wide64 => "wide64",
         },
     );
-    data.set("linux.utmp.type", record.ut_type as i64);
+    data.set(field::TYPE, record.ut_type as i64);
     if let Some(name) = utmp_type_name(record.ut_type) {
-        data.set("linux.utmp.type_name", name);
+        data.set(field::TYPE_NAME, name);
     }
     data.set(PROCESS_PID, record.ut_pid as i64);
-    data.set("linux.utmp.line", record.line().into_owned());
-    data.set("linux.utmp.line_raw", hex_encode(&record.ut_line_raw));
-    data.set("linux.utmp.id_raw", hex_encode(&record.ut_id));
+    data.set(field::LINE, record.line().into_owned());
+    data.set(field::LINE_RAW, hex_encode(&record.ut_line_raw));
+    data.set(field::ID_RAW, hex_encode(&record.ut_id));
     data.set(USER_NAME, record.user().into_owned());
-    data.set("linux.utmp.user_raw", hex_encode(&record.ut_user_raw));
+    data.set(field::USER_RAW, hex_encode(&record.ut_user_raw));
     data.set(SOURCE_ADDRESS, record.host().into_owned());
-    data.set("linux.utmp.host_raw", hex_encode(&record.ut_host_raw));
-    data.set(
-        "linux.utmp.termination_status",
-        record.termination_status as i64,
-    );
-    data.set("linux.utmp.exit_status", record.exit_status as i64);
-    data.set("linux.utmp.session", record.session);
-    data.set("linux.utmp.tv_sec", record.tv_sec);
-    data.set("linux.utmp.tv_usec", record.tv_usec);
-    data.set("linux.utmp.addr_v6", hex_addr_v6(record.addr_v6));
+    data.set(field::HOST_RAW, hex_encode(&record.ut_host_raw));
+    data.set(field::TERMINATION_STATUS, record.termination_status as i64);
+    data.set(field::EXIT_STATUS, record.exit_status as i64);
+    data.set(field::SESSION, record.session);
+    data.set(field::TV_SEC, record.tv_sec);
+    data.set(field::TV_USEC, record.tv_usec);
+    data.set(field::ADDR_V6, hex_addr_v6(record.addr_v6));
     if let Some(ts) = record_timestamp(record.tv_sec, record.tv_usec) {
         data.set(TIMESTAMP, ts);
     }
@@ -717,13 +775,13 @@ fn lastlog_to_forensic_data(
     let mut data = ForensicData::new(host, Artifact::Linux(LinuxArtifacts::Utmp), provenance);
     data.set(ARTIFACT_PATH, path.as_str().to_string());
     data.set(ARTIFACT_DEFINITION, definition);
-    data.set("linux.utmp.record_type", "lastlog");
-    data.set("linux.utmp.lastlog.uid", record.uid as u64);
-    data.set("linux.utmp.line", record.line().into_owned());
-    data.set("linux.utmp.line_raw", hex_encode(&record.ll_line_raw));
+    data.set(field::RECORD_TYPE, "lastlog");
+    data.set(field::LASTLOG_UID, record.uid as u64);
+    data.set(field::LINE, record.line().into_owned());
+    data.set(field::LINE_RAW, hex_encode(&record.ll_line_raw));
     data.set(SOURCE_ADDRESS, record.host().into_owned());
-    data.set("linux.utmp.host_raw", hex_encode(&record.ll_host_raw));
-    data.set("linux.utmp.tv_sec", record.ll_time as i64);
+    data.set(field::HOST_RAW, hex_encode(&record.ll_host_raw));
+    data.set(field::TV_SEC, record.ll_time as i64);
     if let Some(ts) = record_timestamp(record.ll_time as i64, 0) {
         data.set(TIMESTAMP, ts);
     }
@@ -936,6 +994,27 @@ mod tests {
         let bytes = sample_lastlog_bytes(0, b"", b"");
         let record = parse_lastlog_record(&bytes, 7).unwrap();
         assert!(record.never_logged_in());
+        assert!(!record.has_suspicious_zero_time());
+    }
+
+    #[test]
+    fn a_zero_time_lastlog_slot_with_a_populated_line_is_suspicious_not_never_logged_in() {
+        // ll_time == 0 alone is lastlog(8)'s "never logged in" marker, but a genuinely untouched
+        // slot has an empty line and host too. A populated line/host alongside a zero timestamp
+        // must not be swallowed by the same filter, or a zeroed-timestamp record looks identical
+        // to an ordinary sparse-file hole.
+        let bytes = sample_lastlog_bytes(0, b"tty1", b"");
+        let record = parse_lastlog_record(&bytes, 9).unwrap();
+        assert!(!record.never_logged_in());
+        assert!(record.has_suspicious_zero_time());
+    }
+
+    #[test]
+    fn a_zero_time_lastlog_slot_with_a_populated_host_is_suspicious_not_never_logged_in() {
+        let bytes = sample_lastlog_bytes(0, b"", b"remote.example");
+        let record = parse_lastlog_record(&bytes, 10).unwrap();
+        assert!(!record.never_logged_in());
+        assert!(record.has_suspicious_zero_time());
     }
 
     #[test]
@@ -1104,10 +1183,10 @@ mod factory_tests {
         assert_eq!(field(record, USER_NAME), Some("alice"));
         assert_eq!(field(record, SOURCE_ADDRESS), Some("10.0.0.7"));
         assert_eq!(record.field_as_u64(PROCESS_PID), Some(1234));
-        assert_eq!(field(record, "linux.utmp.type_name"), Some("USER_PROCESS"));
-        assert_eq!(field(record, "linux.utmp.layout"), Some("narrow32"));
+        assert_eq!(field(record, field::TYPE_NAME), Some("USER_PROCESS"));
+        assert_eq!(field(record, field::LAYOUT), Some("narrow32"));
         // The raw field is never dropped even though the display value already decoded cleanly.
-        assert!(field(record, "linux.utmp.user_raw").unwrap().len() == UT_USER_SIZE * 2);
+        assert!(field(record, field::USER_RAW).unwrap().len() == UT_USER_SIZE * 2);
         assert!(record.field_as_date(TIMESTAMP).is_some());
     }
 
@@ -1119,7 +1198,7 @@ mod factory_tests {
         let items = run(&sources(vfs, true));
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
         assert_eq!(records.len(), 1);
-        let raw = field(records[0], "linux.utmp.user_raw").unwrap();
+        let raw = field(records[0], field::USER_RAW).unwrap();
         assert_eq!(&raw[..invalid_utf8.len() * 2], "fffe7880");
         // The lossy display value still exists, replacement character and all.
         assert!(field(records[0], USER_NAME).unwrap().contains('\u{FFFD}'));
@@ -1154,8 +1233,25 @@ mod factory_tests {
             items.iter().filter_map(|i| i.as_ref().err()).collect::<Vec<_>>()
         );
         assert_eq!(records.len(), 1, "the never-logged-in uid 0 slot must not appear");
-        assert_eq!(records[0].field_as_u64("linux.utmp.lastlog.uid"), Some(1));
+        assert_eq!(records[0].field_as_u64(field::LASTLOG_UID), Some(1));
         assert_eq!(field(records[0], ARTIFACT_DEFINITION), Some(LASTLOG_DEF));
+    }
+
+    #[test]
+    fn a_zero_time_lastlog_slot_with_a_populated_line_is_surfaced_not_dropped() {
+        // A slot whose ll_time was zeroed but whose line/host were left behind must not
+        // disappear the way a genuine never-logged-in slot does: it is real evidence, flagged as
+        // anomalous rather than silently filtered.
+        let mut suspicious = vec![0u8; LASTLOG_RECORD_SIZE]; // ll_time stays 0
+        suspicious[4..8].copy_from_slice(b"tty9");
+        let vfs = InMemoryVirtualFileSystem::new().with_file("var/log/lastlog", suspicious); // uid 0
+        let items = run(&sources(vfs, true));
+        let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
+        let errors: Vec<&ForensicError> = items.iter().filter_map(|i| i.as_ref().err()).collect();
+        assert_eq!(records.len(), 1, "the slot's data must still be emitted");
+        assert_eq!(records[0].field_as_u64(field::LASTLOG_UID), Some(0));
+        assert_eq!(errors.len(), 1, "the anomaly must be surfaced, not silently dropped");
+        assert!(errors[0].to_string().contains("uid 0"));
     }
 
     #[test]
