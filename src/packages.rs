@@ -406,7 +406,12 @@ fn parse_records(format: PackagesFormat, lines: &[TextLine<'_>]) -> (Vec<Package
                 if let Some(mut record) = parse_aptitude_action_line(text.as_ref()) {
                     record.timestamp = session_timestamp;
                     records.push(record);
+                    continue;
                 }
+                // Anything else (a session's "Aptitude X: log report" banner, a malformed
+                // timestamp line, free text) means we can no longer vouch for the timestamp:
+                // drop it rather than let a later session's actions inherit a stale one.
+                session_timestamp = None;
             }
             (records, 0, 0)
         }
@@ -697,6 +702,20 @@ mod tests {
         assert_eq!(records[1].package_version_old.as_deref(), Some("5.1-6ubuntu1"));
         assert_eq!(records[1].package_version.as_deref(), Some("5.1-6ubuntu1.1"));
         assert_eq!(records[0].timestamp, records[1].timestamp);
+    }
+
+    #[test]
+    fn aptitude_actions_after_a_malformed_session_header_lose_the_stale_timestamp() {
+        let bytes = b"Aptitude 0.8.13: log report\nTue, Aug 01 2023 10:15:23 +0000\n[INSTALL] curl (7.81.0-1ubuntu1.4)\nAptitude 0.8.13: log report\nnot a valid timestamp line\n[INSTALL] bash (5.1-6ubuntu1)\n";
+        let lines = lines_of(bytes);
+        let (records, _, _) = parse_records(PackagesFormat::AptitudeLog, &lines);
+        assert_eq!(records.len(), 2);
+        assert!(records[0].timestamp.is_some());
+        assert_eq!(records[1].package_name.as_deref(), Some("bash"));
+        assert_eq!(
+            records[1].timestamp, None,
+            "a malformed session header must not leak the previous session's timestamp"
+        );
     }
 
     #[test]

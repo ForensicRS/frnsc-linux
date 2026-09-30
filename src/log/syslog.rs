@@ -461,7 +461,10 @@ impl YearTracker {
         if !is_first {
             if let Some(last_month) = self.last_month {
                 if month < last_month && last_month - month >= 6 {
-                    self.year = self.year.map(|y| y + 1);
+                    // `checked_add` rather than a bare `+ 1`: a file whose mtime-derived year
+                    // is already `u16::MAX` (tampered or corrupt metadata) must lose its year
+                    // anchor, not overflow into a fabricated one.
+                    self.year = self.year.and_then(|y| y.checked_add(1));
                     self.rolled_over = true;
                 }
             }
@@ -474,7 +477,13 @@ impl YearTracker {
                     // One day of tolerance for clock skew between the collected file's mtime
                     // and the timestamps it contains.
                     if candidate.to_unix_secs() > mtime.to_unix_secs() + 86_400 {
-                        year -= 1;
+                        // Same reasoning as the increment above: a year of 0 has no valid
+                        // predecessor, so lose the anchor rather than underflow it.
+                        let Some(prior_year) = year.checked_sub(1) else {
+                            self.year = None;
+                            return None;
+                        };
+                        year = prior_year;
                         self.year = Some(year);
                     }
                 }
@@ -920,6 +929,30 @@ mod tests {
     fn year_tracker_with_no_mtime_and_no_context_derives_nothing() {
         let mut tracker = YearTracker::new(None);
         assert!(tracker.resolve(1, 15, 8, 0, 12, None).is_none());
+    }
+
+    #[test]
+    fn year_tracker_loses_its_anchor_instead_of_underflowing_at_year_zero() {
+        // A tampered/corrupt mtime of year 0 combined with a first line that would need to
+        // roll back a year (December, while mtime says January) must not wrap a u16 below
+        // zero: it must give up the derived year rather than fabricate one.
+        let mtime = ForensicTimestamp::with_ymd_and_hms(0, 1, 2, 0, 0, 0, 0).unwrap();
+        let mut tracker = YearTracker::new(Some(mtime));
+        assert!(tracker.resolve(12, 31, 23, 59, 0, Some(mtime)).is_none());
+        // The lost anchor must stick: a later line must not resurrect a stale/bogus year.
+        assert!(tracker.resolve(12, 30, 23, 58, 0, Some(mtime)).is_none());
+    }
+
+    #[test]
+    fn year_tracker_loses_its_anchor_instead_of_overflowing_at_u16_max() {
+        // A tampered/corrupt mtime of year u16::MAX, followed by a December-to-January
+        // transition within the file (which would need to increment the year), must not
+        // wrap back around to year 0: it must give up the derived year instead.
+        let mtime = ForensicTimestamp::with_ymd_and_hms(u16::MAX, 12, 31, 0, 0, 0, 0).unwrap();
+        let mut tracker = YearTracker::new(Some(mtime));
+        let (dec_ts, _) = tracker.resolve(12, 31, 23, 0, 0, Some(mtime)).unwrap();
+        assert_eq!(dec_ts.year(), u16::MAX as i64);
+        assert!(tracker.resolve(1, 2, 0, 5, 0, Some(mtime)).is_none());
     }
 }
 
