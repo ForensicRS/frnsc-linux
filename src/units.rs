@@ -176,13 +176,29 @@ fn parse_rcd_filename(name: &str) -> Option<(char, u32, &str)> {
     }
 }
 
-/// The `### BEGIN INIT INFO` / `### END INIT INFO` LSB header block, as its raw `Key: value`
-/// pairs (in file order — `Provides`, `Required-Start`, `Required-Stop`, `Default-Start`,
-/// `Default-Stop`, `Short-Description`, ... keep whatever keys the script actually has). `None`
-/// when the script has no such block, which is common for plain SysV scripts.
-fn parse_lsb_header(text: &str) -> Option<BTreeMap<String, String>> {
-    let start = text.find("### BEGIN INIT INFO")?;
-    let end_marker = text[start..].find("### END INIT INFO")?;
+/// The result of looking for the `### BEGIN INIT INFO` / `### END INIT INFO` LSB header block.
+///
+/// `Absent` (no `BEGIN` marker at all) and `Truncated` (a `BEGIN` marker with no matching `END`)
+/// are kept distinct: a plain SysV script that never had a header looks nothing like one whose
+/// header was cut off mid-file or had its closing marker stripped, and the latter is worth a
+/// `Finding` of its own — see [`rc_script_record`].
+#[derive(Debug, PartialEq, Eq)]
+enum LsbHeader {
+    Absent,
+    Truncated,
+    Present(BTreeMap<String, String>),
+}
+
+/// Parses the `### BEGIN INIT INFO` / `### END INIT INFO` LSB header block into its raw
+/// `Key: value` pairs (`Provides`, `Required-Start`, `Required-Stop`, `Default-Start`,
+/// `Default-Stop`, `Short-Description`, ... keep whatever keys the script actually has).
+fn parse_lsb_header(text: &str) -> LsbHeader {
+    let Some(start) = text.find("### BEGIN INIT INFO") else {
+        return LsbHeader::Absent;
+    };
+    let Some(end_marker) = text[start..].find("### END INIT INFO") else {
+        return LsbHeader::Truncated;
+    };
     let block = &text[start..start + end_marker];
     let mut map = BTreeMap::new();
     for line in block.lines() {
@@ -191,7 +207,7 @@ fn parse_lsb_header(text: &str) -> Option<BTreeMap<String, String>> {
             map.insert(k.trim().to_string(), v.trim().to_string());
         }
     }
-    Some(map)
+    LsbHeader::Present(map)
 }
 
 fn rc_script_record(
@@ -202,7 +218,7 @@ fn rc_script_record(
     kind: Kind,
     source: &SourceHandle,
     acquisition: Acquisition,
-) -> ForensicData {
+) -> Vec<ForensicResult<ForensicData>> {
     let mut data = new_record(host, kind, source, acquisition);
     base_fields(&mut data, path, definition, kind);
     let filename = path.file_name().unwrap_or("");
@@ -216,8 +232,9 @@ fn rc_script_record(
     }
 
     let text = String::from_utf8_lossy(bytes);
+    let mut truncated_header = None;
     match parse_lsb_header(&text) {
-        Some(header) => {
+        LsbHeader::Present(header) => {
             data.set(field::LSB_HAS_HEADER, true);
             if let Some(provides) = header.get("Provides") {
                 service_name = provides.clone();
@@ -242,12 +259,29 @@ fn rc_script_record(
                 data.set(field::LSB_SHORT_DESCRIPTION, v.clone());
             }
         }
-        None => {
+        LsbHeader::Absent => {
             data.set(field::LSB_HAS_HEADER, false);
+        }
+        LsbHeader::Truncated => {
+            data.set(field::LSB_HAS_HEADER, false);
+            truncated_header = Some(
+                ForensicError::invalid_format(
+                    "LSB init header",
+                    "### BEGIN INIT INFO present without a matching ### END INIT INFO: the \
+                     header is truncated or was tampered with, which is distinct evidence from \
+                     a script that never had one",
+                )
+                .with_path(path.to_owned()),
+            );
         }
     }
     data.set(SERVICE_NAME, service_name);
-    data
+
+    let mut out = vec![Ok(data)];
+    if let Some(err) = truncated_header {
+        out.push(Err(err));
+    }
+    out
 }
 
 fn text_owned_list(whitespace_separated: &str) -> Vec<Text> {
@@ -488,7 +522,7 @@ impl ArtifactParserFactory for UnitsParserFactory {
                         &target.source,
                         acquisition,
                     ),
-                    Kind::SysV | Kind::Lsb => vec![Ok(rc_script_record(
+                    Kind::SysV | Kind::Lsb => rc_script_record(
                         &host,
                         &target.definition,
                         target.path.as_path(),
@@ -496,7 +530,7 @@ impl ArtifactParserFactory for UnitsParserFactory {
                         target.kind,
                         &target.source,
                         acquisition,
-                    ))],
+                    ),
                     Kind::Xinetd => xinetd_records(
                         &host,
                         &target.definition,
@@ -554,7 +588,10 @@ mod tests {
     #[test]
     fn lsb_header_block_is_parsed_into_key_value_pairs() {
         let script = "#!/bin/sh\n### BEGIN INIT INFO\n# Provides:          apache2\n# Required-Start:    $local_fs $network\n# Default-Start:      2 3 4 5\n# Short-Description:  Apache2 web server\n### END INIT INFO\necho hi\n";
-        let header = parse_lsb_header(script).unwrap();
+        let header = match parse_lsb_header(script) {
+            LsbHeader::Present(header) => header,
+            other => panic!("expected LsbHeader::Present, got {other:?}"),
+        };
         assert_eq!(header.get("Provides"), Some(&"apache2".to_string()));
         assert_eq!(header.get("Required-Start"), Some(&"$local_fs $network".to_string()));
         assert_eq!(header.get("Default-Start"), Some(&"2 3 4 5".to_string()));
@@ -562,8 +599,15 @@ mod tests {
 
     #[test]
     fn a_script_without_a_header_is_still_reported_with_has_header_false() {
-        assert!(parse_lsb_header("#!/bin/sh\necho hi\n").is_none());
+        assert_eq!(parse_lsb_header("#!/bin/sh\necho hi\n"), LsbHeader::Absent);
     }
+
+    #[test]
+    fn a_begin_marker_without_a_matching_end_marker_is_reported_as_truncated_not_absent() {
+        let script = "#!/bin/sh\n### BEGIN INIT INFO\n# Provides:          apache2\necho hi\n";
+        assert_eq!(parse_lsb_header(script), LsbHeader::Truncated);
+    }
+
 }
 
 #[cfg(test)]
@@ -678,6 +722,20 @@ mod factory_tests {
         assert_eq!(records.len(), 1);
         assert_eq!(field(records[0], SERVICE_NAME), Some("apache2"));
         assert_eq!(records[0].artifact(), &Artifact::Linux(LinuxArtifacts::Service(LinuxService::InitD)));
+    }
+
+    #[test]
+    fn a_begin_marker_without_a_matching_end_marker_is_an_err_item_not_a_silent_no_header() {
+        let script = b"#!/bin/sh\n### BEGIN INIT INFO\n# Provides:          apache2\nexit 0\n";
+        let vfs = InMemoryVirtualFileSystem::new().with_file("etc/init.d/apache2", script.to_vec());
+        let items = run(&sources(vfs));
+        let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
+        assert_eq!(records.len(), 1);
+        // Still reported as `has_header: false` (there is no complete header to parse), but
+        // unlike a script with no header at all, the truncation itself surfaces as an Err item
+        // rather than being folded away silently.
+        assert_eq!(records[0].field_as_u64(field::LSB_HAS_HEADER), Some(0));
+        assert!(items.iter().any(|i| i.is_err()));
     }
 
     #[test]

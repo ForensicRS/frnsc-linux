@@ -61,6 +61,7 @@ mod field {
     pub const LINE_NUMBER: &str = "linux.identity.line_number";
     pub const KEY: &str = "linux.identity.key";
     pub const VALUE: &str = "linux.identity.value";
+    pub const RAW_LINE: &str = "linux.identity.raw_line";
     pub const RELEASE_TEXT: &str = "linux.identity.release_text";
     pub const TIMEZONE_FORMAT: &str = "linux.identity.timezone.format";
     pub const TIMEZONE_NAME: &str = "linux.identity.timezone.name";
@@ -282,17 +283,43 @@ fn fstab_records(
         let mut data = new_record(host, Kind::Fstab, source, acquisition);
         base_fields(&mut data, path, definition, Kind::Fstab);
         data.set(field::LINE_NUMBER, line.number as u64);
+        data.set(field::RAW_LINE, trimmed.to_string());
         data.set(field::FSTAB_DEVICE, tokens[0].to_string());
         data.set(field::FSTAB_MOUNTPOINT, tokens[1].to_string());
         data.set(field::FSTAB_FSTYPE, tokens[2].to_string());
         data.set(field::FSTAB_OPTIONS, tokens[3].to_string());
-        if let Some(dump) = tokens.get(4).and_then(|s| s.parse::<i64>().ok()) {
-            data.set(field::FSTAB_DUMP, dump);
+
+        // A present-but-unparseable dump/pass token is not the same evidence as a legitimately
+        // short line: the field is left unset either way, but only the former is worth a
+        // `Finding` — see the module's "keep what was read" convention (raw_line above records
+        // the exact text regardless).
+        let mut token_errors = Vec::new();
+        if let Some(token) = tokens.get(4) {
+            match token.parse::<i64>() {
+                Ok(dump) => data.set(field::FSTAB_DUMP, dump),
+                Err(_) => token_errors.push(
+                    ForensicError::invalid_format(
+                        "fstab line",
+                        format!("line {}: dump field {token:?} is present but not an integer", line.number),
+                    )
+                    .with_path(path.to_owned()),
+                ),
+            }
         }
-        if let Some(pass) = tokens.get(5).and_then(|s| s.parse::<i64>().ok()) {
-            data.set(field::FSTAB_PASS, pass);
+        if let Some(token) = tokens.get(5) {
+            match token.parse::<i64>() {
+                Ok(pass) => data.set(field::FSTAB_PASS, pass),
+                Err(_) => token_errors.push(
+                    ForensicError::invalid_format(
+                        "fstab line",
+                        format!("line {}: pass field {token:?} is present but not an integer", line.number),
+                    )
+                    .with_path(path.to_owned()),
+                ),
+            }
         }
         out.push(Ok(data));
+        out.extend(token_errors.into_iter().map(Err));
     }
     out
 }
@@ -684,5 +711,30 @@ mod factory_tests {
         let items = run(&sources(vfs));
         assert_eq!(items.len(), 1);
         assert!(items[0].is_err());
+    }
+
+    #[test]
+    fn fstab_rows_keep_the_raw_line() {
+        let vfs = InMemoryVirtualFileSystem::new()
+            .with_file("etc/fstab", b"/dev/sda1 / ext4 defaults 0 1\n".to_vec());
+        let items = run(&sources(vfs));
+        let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
+        assert_eq!(records.len(), 1);
+        assert_eq!(field(records[0], field::RAW_LINE), Some("/dev/sda1 / ext4 defaults 0 1"));
+    }
+
+    #[test]
+    fn a_present_but_unparseable_fstab_pass_token_is_an_err_item_not_a_silently_dropped_field() {
+        let vfs = InMemoryVirtualFileSystem::new()
+            .with_file("etc/fstab", b"/dev/sda1 / ext4 defaults 0 X\n".to_vec());
+        let items = run(&sources(vfs));
+        let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
+        assert_eq!(records.len(), 1);
+        // The row is still emitted with everything that did parse; the malformed `pass` token is
+        // indistinguishable from an absent one in the field itself, but the raw line is kept and
+        // an Err item surfaces the malformed token rather than silently dropping it.
+        assert!(records[0].field_as_u64(field::FSTAB_PASS).is_none());
+        assert_eq!(field(records[0], field::RAW_LINE), Some("/dev/sda1 / ext4 defaults 0 X"));
+        assert!(items.iter().any(|i| i.is_err()));
     }
 }
