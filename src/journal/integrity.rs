@@ -103,10 +103,9 @@ fn check_seqnum_gaps(signals: &Signals<'_>, out: &mut Vec<ForensicError>) {
     let mut prev: Option<u64> = None;
     for e in signals.indexed_entries {
         if let Some(p) = prev {
-            if e.seqnum <= p {
-                gaps += 1;
-                first_offset.get_or_insert(e.offset);
-            } else if e.seqnum > p + 1 {
+            // Either a non-increasing step or a gap of more than one: both mean the sequence
+            // isn't the clean "+1 every entry" shape a healthy indexed walk should show.
+            if e.seqnum <= p || e.seqnum > p + 1 {
                 gaps += 1;
                 first_offset.get_or_insert(e.offset);
             }

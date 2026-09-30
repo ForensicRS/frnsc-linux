@@ -115,6 +115,19 @@ pub fn scan(win: &Window<'_>, header_size: u64, compact: bool, max_objects: u64)
                 cursor += advance;
             }
             Err(e) => {
+                // A real journal's arena is typically pre-allocated well past what has actually
+                // been written (every fixture in `journal_real_samples.rs` is 8 MiB with only a
+                // few KiB actually used) — the never-written tail reads back as all zero bytes,
+                // which parses as `ObjectHeader { type: 0, size: 0 }` and fails `parse_header`'s
+                // own size check. That is the ordinary, expected shape of unused arena space, not
+                // corruption: confirming the *entire* remainder is zero (not just this one
+                // header-sized read) is what tells the two apart from a hostile file that plants
+                // a zeroed decoy over a real object placed deeper in — see
+                // `a_zeroed_tail_is_the_end_of_the_scan_not_an_error` and
+                // `a_zeroed_gap_with_a_real_object_further_in_is_still_found` below.
+                if is_all_zero(win, cursor, end) {
+                    break;
+                }
                 result.errors.push(e.with_offset(cursor));
                 match carve_forward(win, cursor + 8, end, compact) {
                     Some(next) => {
@@ -167,6 +180,18 @@ fn record_object(
         header,
         carved,
     });
+}
+
+/// Whether every byte from `from` to `end` is zero — how the scan tells a legitimate never-written
+/// arena tail apart from a corrupt or hostile object header that merely starts with a zero type
+/// and size (see the call site in [`scan`]). A hostile file can still plant a real object further
+/// into an otherwise-zero span; that case is bounded by [`MAX_CARVE_DISTANCE`] the same as any
+/// other carve, not by this check (which only short-circuits the fully-empty case).
+fn is_all_zero(win: &Window<'_>, from: u64, end: u64) -> bool {
+    match win.slice(from, end - from) {
+        Ok(bytes) => bytes.iter().all(|&b| b == 0),
+        Err(_) => false,
+    }
 }
 
 /// Scans byte-by-byte from `from` (inclusive) up to `from + MAX_CARVE_DISTANCE` (capped at `end`)
@@ -270,6 +295,38 @@ mod tests {
         let result = scan(&win, 0, false, 1000);
         assert_eq!(result.objects.len(), 2);
         assert_eq!(result.entries.len(), 1);
+    }
+
+    #[test]
+    fn a_zeroed_tail_is_the_end_of_the_scan_not_an_error() {
+        // A pre-allocated arena is almost always bigger than what has been written so far — the
+        // never-written tail is all zero bytes, which is the ordinary shape of unused space, not
+        // corruption. Every real fixture in `journal_real_samples.rs` looks exactly like this
+        // (an 8 MiB arena with a few KiB actually used).
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&entry_object_bytes(1, &[(0, 0)]));
+        buf.resize(buf.len() + 4096, 0); // a large never-written tail
+        let win = Window::new(&buf, 0, buf.len() as u64);
+        let result = scan(&win, 0, false, 1000);
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.entries.len(), 1);
+        assert!(!result.carving_used, "a clean zero tail needs no carving at all");
+    }
+
+    #[test]
+    fn a_zeroed_gap_with_a_real_object_further_in_is_still_found() {
+        // Distinguishes "the rest of the file really is empty" from "there is a real object
+        // sitting past some zero padding" — the latter must still be found by carving, not
+        // swallowed by the zero-tail short-circuit above.
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&entry_object_bytes(1, &[(0, 0)]));
+        buf.resize(buf.len() + 256, 0); // a zeroed gap, well under MAX_CARVE_DISTANCE
+        buf.extend_from_slice(&entry_object_bytes(2, &[(0, 0)]));
+        let win = Window::new(&buf, 0, buf.len() as u64);
+        let result = scan(&win, 0, false, 1000);
+        assert!(result.carving_used);
+        let seqnums: Vec<u64> = result.entries.iter().map(|(_, e)| e.seqnum).collect();
+        assert_eq!(seqnums, vec![1, 2]);
     }
 
     #[test]

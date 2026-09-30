@@ -139,10 +139,20 @@ mod tests {
         assert_eq!(flatten_item_offsets(&walk), vec![1000, 2000, 3000]);
     }
 
+    /// Places `bytes` at absolute offset `offset` inside a zero-filled buffer at least
+    /// `min_len` bytes long.
+    fn place_at(offset: u64, bytes: &[u8], min_len: u64) -> Vec<u8> {
+        let len = min_len.max(offset + bytes.len() as u64) as usize;
+        let mut buf = vec![0u8; len];
+        buf[offset as usize..offset as usize + bytes.len()].copy_from_slice(bytes);
+        buf
+    }
+
     #[test]
     fn a_self_referencing_array_is_a_cycle_not_an_infinite_loop() {
-        let mut buf = array_object_bytes(64, &[1000]); // next_entry_array_offset points at itself
-        buf.resize(200, 0);
+        // The array at offset 64 points at itself.
+        let obj = array_object_bytes(64, &[1000]);
+        let buf = place_at(64, &obj, 200);
         let win = Window::new(&buf, 0, buf.len() as u64);
         let walk = walk_chain(&win, 64, false, 1000);
         assert!(walk.cycle_detected);
@@ -151,11 +161,11 @@ mod tests {
 
     #[test]
     fn a_two_cycle_is_also_caught() {
-        let mut a = array_object_bytes(128, &[1]);
-        let b = array_object_bytes(64, &[2]); // b points back at a
-        a.resize(64, 0);
-        let mut buf = a;
-        buf.extend_from_slice(&b);
+        // a (offset 64) -> b (offset 128) -> a (offset 64): a two-hop cycle.
+        let a = array_object_bytes(128, &[1]);
+        let b = array_object_bytes(64, &[2]);
+        let mut buf = place_at(64, &a, 200);
+        buf[128..128 + b.len()].copy_from_slice(&b);
         let win = Window::new(&buf, 0, buf.len() as u64);
         let walk = walk_chain(&win, 64, false, 1000);
         assert!(walk.cycle_detected);

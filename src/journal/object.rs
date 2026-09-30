@@ -193,7 +193,7 @@ pub fn parse_entry_object(
 
     let item_stride: u64 = if compact { 4 } else { 16 };
     let items_bytes = header.size - fixed_len;
-    if items_bytes % item_stride != 0 {
+    if !items_bytes.is_multiple_of(item_stride) {
         return Err(ForensicError::invalid_format(
             "journal entry object",
             format!(
@@ -271,7 +271,7 @@ pub fn parse_entry_array_object(
 
     let item_stride: u64 = if compact { 4 } else { 8 };
     let items_bytes = header.size - fixed_len;
-    if items_bytes % item_stride != 0 {
+    if !items_bytes.is_multiple_of(item_stride) {
         return Err(ForensicError::invalid_format(
             "journal entry array object",
             format!(

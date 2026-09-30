@@ -8,13 +8,16 @@
 //! [`packages::PackagesParserFactory`] (`linux.packages`) — and the config/state family —
 //! [`unix::accounts::AccountsParserFactory`] (`linux.accounts`), [`unix::ssh::SshParserFactory`]
 //! (`linux.ssh`), [`schedule::ScheduleParserFactory`] (`linux.schedule`),
-//! [`units::UnitsParserFactory`] (`linux.units`) and
-//! [`identity::IdentityParserFactory`] (`linux.identity`) — are landed, resolved through the
-//! run's artifact catalog (no hardcoded paths). Everything else (`journal/`, `containers/`) is
+//! [`units::UnitsParserFactory`] (`linux.units`),
+//! [`identity::IdentityParserFactory`] (`linux.identity`) and, behind `features = ["journal"]`
+//! (default on), [`journal::JournalParserFactory`] (`linux.journal`) — are landed, resolved
+//! through the run's artifact catalog (no hardcoded paths). Everything else (`containers/`) is
 //! still a gap — see the workspace `FINDINGS.md` entry for `frnsc-linux`.
 
 pub mod identity;
 mod ini;
+#[cfg(feature = "journal")]
+pub mod journal;
 pub mod log;
 pub mod packages;
 pub mod schedule;
@@ -30,7 +33,8 @@ use forensic_rs::prelude::ArtifactParserFactory;
 /// Every `frnsc-linux` parser factory, in the order
 /// `frnsc-pipeline::catalog::Catalog::standard` should register them.
 pub fn standard_parsers() -> Vec<Arc<dyn ArtifactParserFactory>> {
-    vec![
+    #[allow(unused_mut)]
+    let mut parsers: Vec<Arc<dyn ArtifactParserFactory>> = vec![
         Arc::new(unix::utmp::UtmpParserFactory::new()),
         Arc::new(unix::accounts::AccountsParserFactory::new()),
         Arc::new(unix::ssh::SshParserFactory::new()),
@@ -41,5 +45,8 @@ pub fn standard_parsers() -> Vec<Arc<dyn ArtifactParserFactory>> {
         Arc::new(schedule::ScheduleParserFactory::new()),
         Arc::new(units::UnitsParserFactory::new()),
         Arc::new(identity::IdentityParserFactory::new()),
-    ]
+    ];
+    #[cfg(feature = "journal")]
+    parsers.push(Arc::new(journal::JournalParserFactory::new()));
+    parsers
 }

@@ -20,6 +20,24 @@ base64 = "0.22"
 sha2 = "0.10"
 # Docker json-file log lines are one JSON object per line (linux.containers::docker).
 serde_json = "1"
+# journal/compress.rs: one codec per Cargo feature, pure Rust so the crate stays cross-compilable
+# with no `cc`/C-toolchain dependency (see the `journal` module doc for why). `siphasher` is
+# `journal`'s own dependency (the KEYED_HASH DATA-object hash), not tied to any one codec.
+lz4_flex = { version = "0.14", optional = true }
+ruzstd = { version = "0.9", optional = true }
+lzma-rs = { version = "0.3", optional = true }
+siphasher = { version = "1", optional = true }
+
+[features]
+default = ["journal", "lz4", "zstd"]
+# Gates `journal/` as a whole; off under --no-default-features, independent of which (if any)
+# codec feature is requested (each codec feature below implies it back on).
+journal = ["dep:siphasher"]
+lz4 = ["journal", "dep:lz4_flex"]
+zstd = ["journal", "dep:ruzstd"]
+# Opt-in, unlike lz4/zstd: XZ was systemd's original journal compression option but LZ4 (and
+# later ZSTD) became its real-world default, so most journal files never use it.
+xz = ["journal", "dep:lzma-rs"]
 
 [dev-dependencies]
 # Resolved by the forensic-bootstrap workspace. When this crate gets its own CI outside the
