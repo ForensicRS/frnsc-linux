@@ -213,6 +213,16 @@ fn month_index(name: &str) -> Option<u8> {
     MONTH_ABBREVS.iter().position(|m| m.eq_ignore_ascii_case(name)).map(|i| (i + 1) as u8)
 }
 
+/// Detects the `"Aptitude <version>: log report"` banner every session opens with, printed one
+/// line before that session's own timestamp header. Recognizing the banner itself — not just an
+/// unrecognized line in general — lets a new session's start be told apart from the narrative
+/// preamble (`"  IMPORTANT: ..."`, `"Will install N packages..."`, the `====` separator) that
+/// every real aptitude log prints between a session's timestamp and its first `[ACTION]` line.
+fn is_aptitude_session_banner(text: &str) -> bool {
+    let trimmed = text.trim();
+    trimmed.starts_with("Aptitude ") && trimmed.ends_with("log report")
+}
+
 /// Parses an aptitude session header (`"Www, Mon DD YYYY HH:MM:SS ±ZZZZ"`) into unix seconds.
 fn parse_aptitude_session_timestamp(text: &str) -> Option<i64> {
     let comma = text.find(", ")?;
@@ -399,6 +409,13 @@ fn parse_records(format: PackagesFormat, lines: &[TextLine<'_>]) -> (Vec<Package
                     continue;
                 }
                 let text = line.text();
+                if is_aptitude_session_banner(text.as_ref()) {
+                    // A new session is starting: stop vouching for the previous session's
+                    // timestamp now, in case this session's own timestamp line (next) turns out
+                    // to be malformed and never re-establishes one.
+                    session_timestamp = None;
+                    continue;
+                }
                 if let Some(ts) = parse_aptitude_session_timestamp(text.as_ref()) {
                     session_timestamp = Some(ts);
                     continue;
@@ -408,10 +425,11 @@ fn parse_records(format: PackagesFormat, lines: &[TextLine<'_>]) -> (Vec<Package
                     records.push(record);
                     continue;
                 }
-                // Anything else (a session's "Aptitude X: log report" banner, a malformed
-                // timestamp line, free text) means we can no longer vouch for the timestamp:
-                // drop it rather than let a later session's actions inherit a stale one.
-                session_timestamp = None;
+                // Anything else is narrative preamble ("IMPORTANT: ...", "Will install N
+                // packages...", the "====" separator, blank lines) that every real session
+                // prints between its timestamp and its first action line — not a signal that a
+                // new, un-timestamped session has begun, so the current session_timestamp (set
+                // or already None) is left as-is.
             }
             (records, 0, 0)
         }
@@ -715,6 +733,23 @@ mod tests {
         assert_eq!(
             records[1].timestamp, None,
             "a malformed session header must not leak the previous session's timestamp"
+        );
+    }
+
+    #[test]
+    fn aptitude_session_narrative_preamble_does_not_strip_the_timestamp() {
+        // The real aptitude log-writer (src/generic/apt/log.cc) unconditionally prints an
+        // "IMPORTANT" banner, a "Will install..." summary and a "====" separator between a
+        // session's timestamp and its first [ACTION] line. None of these are a new session
+        // banner, so they must not clear session_timestamp before it reaches the action.
+        let bytes = b"Aptitude 0.8.13: log report\nTue, Aug 01 2023 10:15:23 +0000\n\n  IMPORTANT: this log only lists intended actions; actions which fail\n  due to dpkg problems may not be completed.\n\nWill install 1 packages, and remove 0 packages.\n========================================\n[INSTALL] curl (7.81.0-1ubuntu1.4)\n";
+        let lines = lines_of(bytes);
+        let (records, _, _) = parse_records(PackagesFormat::AptitudeLog, &lines);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].package_name.as_deref(), Some("curl"));
+        assert!(
+            records[0].timestamp.is_some(),
+            "narrative preamble lines between a session's timestamp and its first action must not strip the timestamp"
         );
     }
 
