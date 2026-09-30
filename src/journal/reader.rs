@@ -47,8 +47,15 @@ use crate::journal::window::Window;
 /// One field resolved from an `ENTRY` item's referenced `DATA` object.
 #[derive(Debug, Clone)]
 pub struct ResolvedField {
-    /// The field name exactly as journald wrote it (`_PID`, `MESSAGE`, `SYSLOG_IDENTIFIER`, ...).
+    /// The field name, lossy-decoded for display and lookup — the overwhelmingly common case for
+    /// journal fields is a plain ASCII identifier, where this is exact. See [`Self::name_raw`]
+    /// for the bytes this was decoded from.
     pub raw_name: String,
+    /// The exact name bytes as they appeared before the payload's `=`, always kept regardless of
+    /// [`Self::raw_name`]'s lossy decoding — the same hostile-input rule applied to
+    /// [`Self::value_raw`] applies to the name: a hostile or corrupted payload can make the name
+    /// portion non-UTF-8 too, and the original bytes must survive that.
+    pub name_raw: Vec<u8>,
     /// The decoded value if it is valid UTF-8 — the overwhelmingly common case for journal
     /// fields.
     pub value_utf8: Option<String>,
@@ -321,9 +328,11 @@ fn resolve_fields(
 
         match split_field(&decompressed) {
             Some((name, value)) => {
+                let raw_name = String::from_utf8_lossy(name).into_owned();
                 let value_utf8 = std::str::from_utf8(value).ok().map(|s| s.to_string());
                 fields.push(ResolvedField {
-                    raw_name: name,
+                    raw_name,
+                    name_raw: name.to_vec(),
                     value_utf8,
                     value_raw: value.to_vec(),
                 });
@@ -343,13 +352,13 @@ fn resolve_fields(
     (fields, errors)
 }
 
-/// Splits a decompressed `DATA` payload at its first `=` into `(name, value)`. The name is
-/// lossy-decoded (journald field names are always plain ASCII identifiers in practice); the value
-/// is returned as a byte slice so the caller decides UTF-8 validity itself.
-fn split_field(payload: &[u8]) -> Option<(String, &[u8])> {
+/// Splits a decompressed `DATA` payload at its first `=` into `(name, value)`, both as byte
+/// slices — journald field names are always plain ASCII identifiers in practice, but this is
+/// hostile input, so the caller (not this function) decides how to decode each side and keeps
+/// the exact bytes regardless of what that decoding produces.
+fn split_field(payload: &[u8]) -> Option<(&[u8], &[u8])> {
     let pos = payload.iter().position(|&b| b == b'=')?;
-    let name = String::from_utf8_lossy(&payload[..pos]).into_owned();
-    Some((name, &payload[pos + 1..]))
+    Some((&payload[..pos], &payload[pos + 1..]))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -471,7 +480,7 @@ mod tests {
     #[test]
     fn splits_a_simple_field() {
         let (name, value) = split_field(b"MESSAGE=hello world").unwrap();
-        assert_eq!(name, "MESSAGE");
+        assert_eq!(name, b"MESSAGE");
         assert_eq!(value, b"hello world");
     }
 
@@ -483,8 +492,18 @@ mod tests {
     #[test]
     fn a_value_containing_more_equals_signs_only_splits_on_the_first() {
         let (name, value) = split_field(b"CODE_FILE=src/main.rs=extra").unwrap();
-        assert_eq!(name, "CODE_FILE");
+        assert_eq!(name, b"CODE_FILE");
         assert_eq!(value, b"src/main.rs=extra");
+    }
+
+    #[test]
+    fn a_non_utf8_field_name_keeps_the_exact_bytes_in_name_raw() {
+        let (name, _value) = split_field(b"\xFF\xFEBAD=evil").unwrap();
+        assert_eq!(name, b"\xFF\xFEBAD");
+        // The lossy decode a caller derives from these bytes loses information, which is exactly
+        // why `name_raw` exists on `ResolvedField` — this asserts the raw bytes split_field hands
+        // back are the untouched originals, not a lossy string.
+        assert_ne!(String::from_utf8_lossy(name).into_owned().into_bytes(), name);
     }
 
     #[test]

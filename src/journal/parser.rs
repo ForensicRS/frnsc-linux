@@ -37,6 +37,9 @@ mod field {
     pub const RECOVERY_ONLY: &str = "linux.journal.recovery_only";
     pub const TRUSTED_FIELDS: &str = "linux.journal.trusted_fields";
     pub const FORGEABLE_FIELDS: &str = "linux.journal.forgeable_fields";
+    /// Hex-encoded raw bytes of any field name that was not valid UTF-8 (so `raw_name`'s
+    /// lossy decode lost information). Empty when every field name in the entry decoded cleanly.
+    pub const MALFORMED_FIELD_NAMES: &str = "linux.journal.malformed_field_names";
     pub const MESSAGE: &str = "linux.journal.message";
     /// `linux.journal.field.<RAW_NAME>` — built with [`super::raw_field_name`].
     pub const FIELD_PREFIX: &str = "linux.journal.field.";
@@ -114,11 +117,17 @@ fn entry_to_forensic_data(
 
     let mut trusted_fields: Vec<Text> = Vec::new();
     let mut forgeable_fields: Vec<Text> = Vec::new();
+    let mut malformed_field_names: Vec<Text> = Vec::new();
     for f in &entry.fields {
         if is_trusted(&f.raw_name) {
             trusted_fields.push(Text::Owned(f.raw_name.clone()));
         } else {
             forgeable_fields.push(Text::Owned(f.raw_name.clone()));
+        }
+        if std::str::from_utf8(&f.name_raw).is_err() {
+            // `raw_name` above is a lossy decode of `f.name_raw`; keep the exact bytes too, the
+            // same hostile-input rule already applied to non-UTF-8 field values.
+            malformed_field_names.push(Text::Owned(hex_encode(&f.name_raw)));
         }
 
         let raw_key = raw_field_name(&f.raw_name);
@@ -158,6 +167,13 @@ fn entry_to_forensic_data(
     forgeable_fields.sort();
     data.insert(Text::Borrowed(field::TRUSTED_FIELDS), Field::Array(trusted_fields));
     data.insert(Text::Borrowed(field::FORGEABLE_FIELDS), Field::Array(forgeable_fields));
+    if !malformed_field_names.is_empty() {
+        malformed_field_names.sort();
+        data.insert(
+            Text::Borrowed(field::MALFORMED_FIELD_NAMES),
+            Field::Array(malformed_field_names),
+        );
+    }
     data
 }
 
