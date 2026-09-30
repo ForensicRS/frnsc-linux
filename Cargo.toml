@@ -1,0 +1,21 @@
+[package]
+name = "frnsc-linux"
+version = "0.1.0"
+authors = ["ForensicRS contributors"]
+keywords = ["forensic", "linux", "parser", "cybersecurity"]
+categories = ["parsing"]
+description = "Linux artifact parsers: utmp/wtmp/btmp/lastlog login records, journald, syslog and more"
+license = "MIT"
+edition = "2021"
+repository = "https://github.com/ForensicRS/frnsc-linux"
+# Test artifacts are fetched by forensic-testenv, never committed or published.
+exclude = ["/artifacts"]
+
+[dependencies]
+forensic-rs = "0.14"
+
+[dev-dependencies]
+# Resolved by the forensic-bootstrap workspace. When this crate gets its own CI outside the
+# workspace, switch to the git form (the workspace patches it back to the local copy):
+#   forensic-testdata = { git = "https://github.com/ForensicRS/forensic-testenv" }
+forensic-testdata = { workspace = true }
