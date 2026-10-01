@@ -9,11 +9,12 @@
 //! [`unix::accounts::AccountsParserFactory`] (`linux.accounts`), [`unix::ssh::SshParserFactory`]
 //! (`linux.ssh`), [`schedule::ScheduleParserFactory`] (`linux.schedule`),
 //! [`units::UnitsParserFactory`] (`linux.units`),
-//! [`identity::IdentityParserFactory`] (`linux.identity`) and, behind `features = ["journal"]`
-//! (default on), [`journal::JournalParserFactory`] (`linux.journal`) — are landed, resolved
-//! through the run's artifact catalog (no hardcoded paths). Everything else (`containers/`) is
-//! still a gap — see the workspace `FINDINGS.md` entry for `frnsc-linux`.
+//! [`identity::IdentityParserFactory`] (`linux.identity`), [`containers::ContainersParserFactory`]
+//! (`linux.containers`, Docker `json-file`/containerd-CRI/Kubernetes symlinks) and, behind
+//! `features = ["journal"]` (default on), [`journal::JournalParserFactory`] (`linux.journal`) —
+//! are landed, resolved through the run's artifact catalog (no hardcoded paths).
 
+pub mod containers;
 pub mod identity;
 mod ini;
 #[cfg(feature = "journal")]
@@ -45,6 +46,7 @@ pub fn standard_parsers() -> Vec<Arc<dyn ArtifactParserFactory>> {
         Arc::new(schedule::ScheduleParserFactory::new()),
         Arc::new(units::UnitsParserFactory::new()),
         Arc::new(identity::IdentityParserFactory::new()),
+        Arc::new(containers::ContainersParserFactory::new()),
     ];
     #[cfg(feature = "journal")]
     parsers.push(Arc::new(journal::JournalParserFactory::new()));
