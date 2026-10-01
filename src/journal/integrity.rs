@@ -183,7 +183,9 @@ fn check_data_hash_recompute_mismatches(signals: &Signals<'_>, out: &mut Vec<For
             "{} DATA object(s) carry a stored hash that does not match a freshly computed hash \
              of their own (decompressed) payload, first at offset {}",
             signals.data_hash_recompute_mismatches,
-            signals.data_hash_recompute_mismatch_first_offset.unwrap_or(0)
+            signals
+                .data_hash_recompute_mismatch_first_offset
+                .unwrap_or(0)
         )));
     }
 }
@@ -304,13 +306,26 @@ mod tests {
         let header = base_header();
         let recovery = ScanResult::default();
         let entries = [
-            IndexedEntry { offset: 0, seqnum: 1, realtime: 0, boot_id: [0xAA; 16] },
-            IndexedEntry { offset: 64, seqnum: 5, realtime: 0, boot_id: [0xAA; 16] }, // gap
+            IndexedEntry {
+                offset: 0,
+                seqnum: 1,
+                realtime: 0,
+                boot_id: [0xAA; 16],
+            },
+            IndexedEntry {
+                offset: 64,
+                seqnum: 5,
+                realtime: 0,
+                boot_id: [0xAA; 16],
+            }, // gap
         ];
         let mut signals = empty_signals(&header, &recovery);
         signals.indexed_entries = &entries;
         let findings = run(&signals);
-        let hits: Vec<_> = findings.iter().filter(|f| f.to_string().contains("seqnum")).collect();
+        let hits: Vec<_> = findings
+            .iter()
+            .filter(|f| f.to_string().contains("seqnum"))
+            .collect();
         assert_eq!(hits.len(), 1);
         assert!(hits[0].to_string().contains('1'));
     }
@@ -320,8 +335,18 @@ mod tests {
         let header = base_header();
         let recovery = ScanResult::default();
         let entries = [
-            IndexedEntry { offset: 0, seqnum: 1, realtime: 1000, boot_id: [0xAA; 16] },
-            IndexedEntry { offset: 64, seqnum: 2, realtime: 500, boot_id: [0xAA; 16] },
+            IndexedEntry {
+                offset: 0,
+                seqnum: 1,
+                realtime: 1000,
+                boot_id: [0xAA; 16],
+            },
+            IndexedEntry {
+                offset: 64,
+                seqnum: 2,
+                realtime: 500,
+                boot_id: [0xAA; 16],
+            },
         ];
         let mut signals = empty_signals(&header, &recovery);
         signals.indexed_entries = &entries;
@@ -332,17 +357,26 @@ mod tests {
     #[test]
     fn a_boot_id_mismatch_is_only_checked_when_the_compat_flag_is_set() {
         let mut header = base_header();
-        let entries = [IndexedEntry { offset: 0, seqnum: 1, realtime: 0, boot_id: [0xFF; 16] }];
+        let entries = [IndexedEntry {
+            offset: 0,
+            seqnum: 1,
+            realtime: 0,
+            boot_id: [0xFF; 16],
+        }];
         let recovery = ScanResult::default();
 
         let mut signals = empty_signals(&header, &recovery);
         signals.indexed_entries = &entries;
-        assert!(!run(&signals).iter().any(|f| f.to_string().contains("boot_id")));
+        assert!(!run(&signals)
+            .iter()
+            .any(|f| f.to_string().contains("boot_id")));
 
         header.compatible_flags = CompatibleFlags::TAIL_ENTRY_BOOT_ID;
         let mut signals2 = empty_signals(&header, &recovery);
         signals2.indexed_entries = &entries;
-        assert!(run(&signals2).iter().any(|f| f.to_string().contains("boot_id")));
+        assert!(run(&signals2)
+            .iter()
+            .any(|f| f.to_string().contains("boot_id")));
     }
 
     #[test]
@@ -351,7 +385,10 @@ mod tests {
         header.compatible_flags = CompatibleFlags::SEALED;
         let recovery = ScanResult::default();
         let findings = run(&empty_signals(&header, &recovery));
-        let hit = findings.iter().find(|f| f.to_string().contains("sealed")).unwrap();
+        let hit = findings
+            .iter()
+            .find(|f| f.to_string().contains("sealed"))
+            .unwrap();
         assert!(hit.to_string().contains("unverified"));
         assert!(!hit.to_string().to_lowercase().contains("verified: true"));
     }
@@ -362,7 +399,9 @@ mod tests {
         header.incompatible_flags = IncompatibleFlags(1 << 31);
         let recovery = ScanResult::default();
         let findings = run(&empty_signals(&header, &recovery));
-        assert!(findings.iter().any(|f| f.to_string().contains("unrecognized")));
+        assert!(findings
+            .iter()
+            .any(|f| f.to_string().contains("unrecognized")));
     }
 
     #[test]
@@ -373,7 +412,10 @@ mod tests {
         signals.item_hash_mismatches = 3;
         signals.item_hash_mismatch_first_offset = Some(128);
         let findings = run(&signals);
-        let hit = findings.iter().find(|f| f.to_string().contains("entry item")).unwrap();
+        let hit = findings
+            .iter()
+            .find(|f| f.to_string().contains("entry item"))
+            .unwrap();
         assert!(hit.to_string().contains('3'));
         assert!(hit.to_string().contains("128"));
     }

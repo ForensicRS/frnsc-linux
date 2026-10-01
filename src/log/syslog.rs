@@ -105,7 +105,9 @@ fn ascii_digit(b: u8) -> Option<u8> {
 }
 
 fn two_digit(bytes: &[u8]) -> Option<u8> {
-    ascii_digit(*bytes.first()?)?.checked_mul(10)?.checked_add(ascii_digit(*bytes.get(1)?)?)
+    ascii_digit(*bytes.first()?)?
+        .checked_mul(10)?
+        .checked_add(ascii_digit(*bytes.get(1)?)?)
 }
 
 const MONTH_ABBREVS: [&[u8]; 12] = [
@@ -137,7 +139,9 @@ fn parse_rfc3164_timestamp(text: &str) -> Option<(u8, u8, u8, u8, u8, usize)> {
     let day = if day_bytes[0] == b' ' {
         ascii_digit(day_bytes[1])?
     } else {
-        ascii_digit(day_bytes[0])?.checked_mul(10)?.checked_add(ascii_digit(day_bytes[1])?)?
+        ascii_digit(day_bytes[0])?
+            .checked_mul(10)?
+            .checked_add(ascii_digit(day_bytes[1])?)?
     };
     if bytes.get(6)? != &b' ' {
         return None;
@@ -324,7 +328,17 @@ fn parse_iso8601(s: &str) -> Option<ForensicTimestamp> {
         None => None,
         _ => return None,
     };
-    ForensicTimestamp::try_with_ymd_and_hms_nanos(year, month, day, hour, minute, second, nanos, offset_minutes).ok()
+    ForensicTimestamp::try_with_ymd_and_hms_nanos(
+        year,
+        month,
+        day,
+        hour,
+        minute,
+        second,
+        nanos,
+        offset_minutes,
+    )
+    .ok()
 }
 
 fn nil_token(s: &str) -> Option<String> {
@@ -340,7 +354,8 @@ fn parse_pri(text: &str) -> Result<(Option<u16>, &str), &'static str> {
         Some(rest) => {
             let close = rest.find('>').ok_or("unterminated PRI")?;
             let digits = rest.get(0..close).ok_or("invalid PRI")?;
-            if digits.is_empty() || digits.len() > 3 || !digits.bytes().all(|b| b.is_ascii_digit()) {
+            if digits.is_empty() || digits.len() > 3 || !digits.bytes().all(|b| b.is_ascii_digit())
+            {
                 return Err("invalid PRI digits");
             }
             let pri: u16 = digits.parse().map_err(|_| "invalid PRI digits")?;
@@ -363,7 +378,9 @@ fn parse_rfc3164(priority: Option<u16>, rest: &str) -> Result<ParsedSyslogLine, 
     if hostname.is_empty() {
         return Err("empty RFC3164 hostname");
     }
-    let after_host = after_ts.get(space + 1..).ok_or("malformed RFC3164 hostname")?;
+    let after_host = after_ts
+        .get(space + 1..)
+        .ok_or("malformed RFC3164 hostname")?;
     let (tag, pid, message) = split_tag(after_host);
     Ok(ParsedSyslogLine {
         format: SyslogFormat::Rfc3164,
@@ -473,7 +490,9 @@ impl YearTracker {
         let mut year = self.year?;
         if is_first {
             if let Some(mtime) = mtime {
-                if let Ok(candidate) = ForensicTimestamp::with_ymd_and_hms(year, month, day, 0, 0, 0, 0) {
+                if let Ok(candidate) =
+                    ForensicTimestamp::with_ymd_and_hms(year, month, day, 0, 0, 0, 0)
+                {
                     // One day of tolerance for clock skew between the collected file's mtime
                     // and the timestamps it contains.
                     if candidate.to_unix_secs() > mtime.to_unix_secs() + 86_400 {
@@ -489,7 +508,8 @@ impl YearTracker {
                 }
             }
         }
-        let timestamp = ForensicTimestamp::with_ymd_and_hms(year, month, day, hour, minute, second, 0).ok()?;
+        let timestamp =
+            ForensicTimestamp::with_ymd_and_hms(year, month, day, hour, minute, second, 0).ok()?;
         let derivation = if self.rolled_over {
             YearDerivation::ContextRollover
         } else {
@@ -539,7 +559,11 @@ pub struct SyslogParserFactory {
 
 impl Default for SyslogParserFactory {
     fn default() -> Self {
-        let requirements: Vec<Requirement> = DEFINITIONS.iter().copied().map(Requirement::artifact).collect();
+        let requirements: Vec<Requirement> = DEFINITIONS
+            .iter()
+            .copied()
+            .map(Requirement::artifact)
+            .collect();
         Self {
             descriptor: ParserDescriptor::new(
                 PARSER_ID,
@@ -576,7 +600,10 @@ impl ArtifactParserFactory for SyslogParserFactory {
 
     fn open(&self, ctx: &ParseContext<'_>) -> ForensicResult<ParserRun> {
         let fs = ctx.vfs().cloned().ok_or_else(|| {
-            ForensicError::missing_data("FileSystem source required", CompactString::const_new(PARSER_ID))
+            ForensicError::missing_data(
+                "FileSystem source required",
+                CompactString::const_new(PARSER_ID),
+            )
         })?;
         if ctx.sources().catalog().is_none() {
             return Err(ForensicError::missing_data(
@@ -590,7 +617,8 @@ impl ArtifactParserFactory for SyslogParserFactory {
         let cancellation = ctx.cancellation().clone();
 
         let mut head: Vec<ForensicResult<ForensicData>> = Vec::new();
-        let mut targets: std::collections::BTreeMap<FPathBuf, &'static str> = std::collections::BTreeMap::new();
+        let mut targets: std::collections::BTreeMap<FPathBuf, &'static str> =
+            std::collections::BTreeMap::new();
         for definition in DEFINITIONS.iter().copied() {
             let resolution = match ctx.resolve_artifact(definition) {
                 Ok(resolution) => resolution,
@@ -603,7 +631,10 @@ impl ArtifactParserFactory for SyslogParserFactory {
             head.extend(resolution.unresolved.into_iter().map(|u| {
                 Err(ForensicError::other(
                     "catalog",
-                    format!("{definition}: source {:?} was not searched: {}", u.source, u.reason),
+                    format!(
+                        "{definition}: source {:?} was not searched: {}",
+                        u.source, u.reason
+                    ),
                 ))
             }));
             for note in &resolution.notes {
@@ -611,7 +642,10 @@ impl ArtifactParserFactory for SyslogParserFactory {
             }
             for file in resolution.files {
                 if file.directory {
-                    debug!("{PARSER_ID}: {definition}: ignoring directory {}", file.path);
+                    debug!(
+                        "{PARSER_ID}: {definition}: ignoring directory {}",
+                        file.path
+                    );
                     continue;
                 }
                 if let Some(first) = targets.get(&file.path) {
@@ -652,7 +686,10 @@ impl ArtifactParserFactory for SyslogParserFactory {
                         continue;
                     }
                 };
-                let mtime = fs.metadata(path.as_path()).ok().and_then(|m| m.modified_opt().copied());
+                let mtime = fs
+                    .metadata(path.as_path())
+                    .ok()
+                    .and_then(|m| m.modified_opt().copied());
                 let mut tracker = YearTracker::new(mtime);
                 let lines = scan_lines(&bytes);
                 let mut total = 0usize;
@@ -718,10 +755,13 @@ impl ArtifactParserFactory for SyslogParserFactory {
 
 fn read_file(fs: &dyn FileSystem, path: &FPath) -> ForensicResult<Vec<u8>> {
     use std::io::Read;
-    let mut file = fs.open(path).map_err(|e| e.with_path(FPathBuf::from(path.as_str())))?;
+    let mut file = fs
+        .open(path)
+        .map_err(|e| e.with_path(FPathBuf::from(path.as_str())))?;
     let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)
-        .map_err(|e| ForensicError::io_error_with_source(e, format!("{PARSER_ID}: reading {path}")))?;
+    file.read_to_end(&mut bytes).map_err(|e| {
+        ForensicError::io_error_with_source(e, format!("{PARSER_ID}: reading {path}"))
+    })?;
     Ok(bytes)
 }
 
@@ -807,10 +847,9 @@ mod tests {
     #[test]
     fn parses_rfc3164_without_pri_or_pid() {
         // auth.log's own local convention: no <PRI>, and some tags (kernel, sudo) carry no pid.
-        let parsed = parse_line(
-            "Jan 15 08:01:00 fw01 kernel: [12345.678901] eth0: link becomes ready",
-        )
-        .unwrap();
+        let parsed =
+            parse_line("Jan 15 08:01:00 fw01 kernel: [12345.678901] eth0: link becomes ready")
+                .unwrap();
         assert_eq!(parsed.priority, None);
         assert_eq!(parsed.app_name.as_deref(), Some("kernel"));
         assert_eq!(parsed.proc_id, None);
@@ -836,7 +875,11 @@ mod tests {
         // Only the one mandatory "tag: " separator space is stripped; sudo's own message
         // format starts with further whitespace of its own, which is real content, not
         // syslog framing, and must survive untouched.
-        assert!(parsed.message.starts_with("  deploy : TTY=pts/0"), "{:?}", parsed.message);
+        assert!(
+            parsed.message.starts_with("  deploy : TTY=pts/0"),
+            "{:?}",
+            parsed.message
+        );
     }
 
     #[test]
@@ -878,7 +921,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(parsed.structured_data, None);
-        assert_eq!(parsed.message, "Started nginx.service - A high performance web server.");
+        assert_eq!(
+            parsed.message,
+            "Started nginx.service - A high performance web server."
+        );
     }
 
     #[test]
@@ -978,7 +1024,10 @@ mod factory_tests {
             aliases: Cow::Borrowed(&[]),
             doc: Cow::Borrowed(""),
             sources: Cow::Owned(vec![SourceEntry {
-                source: ArtifactSource::File { paths: Cow::Borrowed(paths), separator: Separator::Slash },
+                source: ArtifactSource::File {
+                    paths: Cow::Borrowed(paths),
+                    separator: Separator::Slash,
+                },
                 supported_os: Cow::Borrowed(&[]),
             }]),
             supported_os: Cow::Borrowed(&[Os::Linux]),
@@ -999,7 +1048,9 @@ mod factory_tests {
     }
 
     fn sources(vfs: InMemoryVirtualFileSystem, with_catalog: bool) -> TriageSources {
-        let mut builder = TriageSources::builder().vfs(Arc::new(vfs)).acquisition(Acquisition::ImageRead);
+        let mut builder = TriageSources::builder()
+            .vfs(Arc::new(vfs))
+            .acquisition(Acquisition::ImageRead);
         if with_catalog {
             builder = builder.catalog(catalog());
         }
@@ -1040,19 +1091,33 @@ mod factory_tests {
         let vfs = InMemoryVirtualFileSystem::new().with_file("var/log/auth.log", bytes.to_vec());
         let items = run(&sources(vfs, true));
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
-        assert!(items.iter().all(|i| i.is_ok()), "unexpected errors: {:?}", items.iter().filter_map(|i| i.as_ref().err()).collect::<Vec<_>>());
+        assert!(
+            items.iter().all(|i| i.is_ok()),
+            "unexpected errors: {:?}",
+            items
+                .iter()
+                .filter_map(|i| i.as_ref().err())
+                .collect::<Vec<_>>()
+        );
         assert_eq!(records.len(), 1);
         let record = records[0];
-        assert!(matches!(record.artifact(), Artifact::Linux(LinuxArtifacts::Log(k)) if k == "auth"));
+        assert!(
+            matches!(record.artifact(), Artifact::Linux(LinuxArtifacts::Log(k)) if k == "auth")
+        );
         assert_eq!(field(record, ARTIFACT_DEFINITION), Some(AUTH_DEF));
         assert_eq!(field(record, HOST_HOSTNAME), Some("web02"));
         assert_eq!(field(record, PROCESS_NAME), Some("sshd"));
         assert_eq!(record.field_as_u64(PROCESS_PID), Some(1234));
-        assert_eq!(field(record, MESSAGE), Some("Accepted publickey for deploy"));
+        assert_eq!(
+            field(record, MESSAGE),
+            Some("Accepted publickey for deploy")
+        );
         // No file mtime in this in-memory filesystem, so the year cannot be derived; the raw
         // fields are still present either way.
         assert!(record.field_as_date(TIMESTAMP).is_none());
-        assert!(field(record, "linux.syslog.raw").unwrap().contains("Accepted publickey"));
+        assert!(field(record, "linux.syslog.raw")
+            .unwrap()
+            .contains("Accepted publickey"));
     }
 
     #[test]
@@ -1063,7 +1128,10 @@ mod factory_tests {
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
         assert_eq!(records.len(), 1);
         let record = records[0];
-        assert_eq!(field(record, "linux.syslog.structured_data"), Some(r#"[x@32473 a="1"]"#));
+        assert_eq!(
+            field(record, "linux.syslog.structured_data"),
+            Some(r#"[x@32473 a="1"]"#)
+        );
         assert!(record.field_as_date(TIMESTAMP).is_some());
         assert_eq!(record.field_as_u64(LOG_SYSLOG_PRIORITY), Some(165));
     }
@@ -1081,7 +1149,8 @@ mod factory_tests {
 
     #[test]
     fn without_a_catalog_the_parser_declines_instead_of_guessing_paths() {
-        let vfs = InMemoryVirtualFileSystem::new().with_file("var/log/syslog", b"whatever".to_vec());
+        let vfs =
+            InMemoryVirtualFileSystem::new().with_file("var/log/syslog", b"whatever".to_vec());
         let sources = sources(vfs, false);
         let triage = TriageContext::new("TEST-HOST", "default");
         let cancellation = CancellationToken::new();

@@ -39,13 +39,17 @@ impl FormatFactory for JournalFormatFactory {
     /// Reads just the 8-byte signature. Per [`FormatFactory::probe`]'s contract, restores the
     /// stream position before returning on every path, including a short/truncated-read return —
     /// a file too short to hold the signature is simply "not this format", not a probe error.
-    fn probe(&self, file: &mut dyn VirtualFile, _ctx: &MountContext<'_>) -> ForensicResult<ProbeScore> {
+    fn probe(
+        &self,
+        file: &mut dyn VirtualFile,
+        _ctx: &MountContext<'_>,
+    ) -> ForensicResult<ProbeScore> {
         let initial_pos = file.stream_position().unwrap_or(0);
         let mut magic = [0u8; 8];
         let read_result = file.read_exact(&mut magic);
-        let seek_result = file
-            .seek(SeekFrom::Start(initial_pos))
-            .map_err(|e| ForensicError::io_error_with_source(e, "restoring stream position after probing"));
+        let seek_result = file.seek(SeekFrom::Start(initial_pos)).map_err(|e| {
+            ForensicError::io_error_with_source(e, "restoring stream position after probing")
+        });
         if read_result.is_err() {
             seek_result.ok();
             return Ok(ProbeScore::No);
@@ -62,10 +66,15 @@ impl FormatFactory for JournalFormatFactory {
     /// are read wholesale rather than streamed (matching `frnsc-winevt`'s `.evtx` mount, and for
     /// the same reason: the indexed/recovery walk in `crate::journal::reader` needs random access
     /// by absolute offset, which a `Read`-only handle cannot give without buffering it anyway).
-    fn mount(&self, mut file: Box<dyn VirtualFile>, _ctx: &MountContext<'_>) -> ForensicResult<Mounted> {
+    fn mount(
+        &self,
+        mut file: Box<dyn VirtualFile>,
+        _ctx: &MountContext<'_>,
+    ) -> ForensicResult<Mounted> {
         let mut bytes = Vec::new();
-        file.read_to_end(&mut bytes)
-            .map_err(|e| ForensicError::io_error_with_source(e, "reading journal file for mount"))?;
+        file.read_to_end(&mut bytes).map_err(|e| {
+            ForensicError::io_error_with_source(e, "reading journal file for mount")
+        })?;
         let reader = JournalEventLogReader::from_bytes(bytes)?;
         Ok(Mounted::EventLog(Arc::new(reader)))
     }
@@ -110,8 +119,9 @@ mod tests {
 
     #[test]
     fn probe_scores_no_on_the_wrong_magic() {
-        let fs: Arc<dyn FileSystem> =
-            Arc::new(InMemoryVirtualFileSystem::new().with_file("j", b"not a journal file".to_vec()));
+        let fs: Arc<dyn FileSystem> = Arc::new(
+            InMemoryVirtualFileSystem::new().with_file("j", b"not a journal file".to_vec()),
+        );
         let mut file = fs.open(FPath::new("j")).unwrap();
         let locator = EvidenceLocator::root();
         let limits = Limits::default();

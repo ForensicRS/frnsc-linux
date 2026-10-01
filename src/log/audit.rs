@@ -86,7 +86,10 @@ fn tokenize_kv(s: &str) -> Vec<(String, String)> {
             Some(b'"') => quoted_value(after_eq, '"'),
             Some(b'\'') => quoted_value(after_eq, '\''),
             _ => match after_eq.find(' ') {
-                Some(i) => (after_eq.get(..i).unwrap_or(after_eq), after_eq.get(i..).unwrap_or("")),
+                Some(i) => (
+                    after_eq.get(..i).unwrap_or(after_eq),
+                    after_eq.get(i..).unwrap_or(""),
+                ),
                 None => (after_eq, ""),
             },
         };
@@ -102,7 +105,10 @@ fn quoted_value(after_eq: &str, quote: char) -> (&str, &str) {
     match after_eq.get(quote.len_utf8()..).and_then(|t| t.find(quote)) {
         Some(end) => {
             let close = quote.len_utf8() + end + quote.len_utf8();
-            (after_eq.get(..close).unwrap_or(after_eq), after_eq.get(close..).unwrap_or(""))
+            (
+                after_eq.get(..close).unwrap_or(after_eq),
+                after_eq.get(close..).unwrap_or(""),
+            )
         }
         None => (after_eq, ""),
     }
@@ -132,7 +138,9 @@ pub fn parse_line(text: &str, line_number: usize) -> Result<AuditLine, &'static 
         return Err("empty type");
     }
     let rest = rest.get(space + 1..).ok_or("malformed type")?;
-    let rest = rest.strip_prefix("msg=audit(").ok_or("missing msg=audit(")?;
+    let rest = rest
+        .strip_prefix("msg=audit(")
+        .ok_or("missing msg=audit(")?;
     let dot = rest.find('.').ok_or("missing epoch separator")?;
     let epoch_sec: i64 = rest
         .get(..dot)
@@ -148,9 +156,15 @@ pub fn parse_line(text: &str, line_number: usize) -> Result<AuditLine, &'static 
         .map_err(|_| "malformed epoch milliseconds")?;
     let rest = rest.get(colon + 1..).ok_or("malformed serial")?;
     let close = rest.find(')').ok_or("missing serial close paren")?;
-    let serial: u64 = rest.get(..close).ok_or("malformed serial")?.parse().map_err(|_| "malformed serial")?;
+    let serial: u64 = rest
+        .get(..close)
+        .ok_or("malformed serial")?
+        .parse()
+        .map_err(|_| "malformed serial")?;
     let rest = rest.get(close + 1..).ok_or("malformed tail")?;
-    let rest = rest.strip_prefix(':').ok_or("missing colon after audit head")?;
+    let rest = rest
+        .strip_prefix(':')
+        .ok_or("missing colon after audit head")?;
     let rest = rest.strip_prefix(' ').unwrap_or(rest);
     Ok(AuditLine {
         event_type: event_type.to_string(),
@@ -168,7 +182,12 @@ fn event_timestamp(epoch_sec: i64, epoch_ms: u16) -> Option<ForensicTimestamp> {
 }
 
 fn first_field<'a>(event: &'a AuditEvent, key: &str) -> Option<&'a str> {
-    event.lines.iter().find_map(|l| l.fields.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str()))
+    event.lines.iter().find_map(|l| {
+        l.fields
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
+    })
 }
 
 /// Whether hex-decoding `key`'s unquoted value is worth attempting: only `a0..aN` and
@@ -178,7 +197,11 @@ fn is_hex_arg_field(event_type: &str, key: &str) -> bool {
     if !matches!(event_type, "EXECVE" | "PROCTITLE") {
         return false;
     }
-    key == "proctitle" || (key.starts_with('a') && key.get(1..).is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit())))
+    key == "proctitle"
+        || (key.starts_with('a')
+            && key
+                .get(1..)
+                .is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit())))
 }
 
 /// Crate-local `linux.audit.*` field names not already covered by the per-record-type flattened
@@ -209,9 +232,15 @@ fn event_to_forensic_data(
     let types: BTreeSet<&str> = event.lines.iter().map(|l| l.event_type.as_str()).collect();
     data.set(
         field::TYPES,
-        types.iter().map(|t| Text::Owned(t.to_string())).collect::<Vec<Text>>(),
+        types
+            .iter()
+            .map(|t| Text::Owned(t.to_string()))
+            .collect::<Vec<Text>>(),
     );
-    data.set(EVENT_ACTION, types.into_iter().collect::<Vec<_>>().join(","));
+    data.set(
+        EVENT_ACTION,
+        types.into_iter().collect::<Vec<_>>().join(","),
+    );
     data.set(field::RAW, raw_lines.join("\n"));
 
     if let Some(uid) = first_field(event, "uid") {
@@ -240,8 +269,14 @@ fn event_to_forensic_data(
                 format!("linux.audit.{type_lower}.{key}.{count}")
             };
             *count += 1;
-            data.insert(Text::Owned(field_name), Field::Text(Text::Owned(value.clone())));
-            if is_hex_arg_field(&line.event_type, key) && !value.starts_with('"') && !value.starts_with('\'') {
+            data.insert(
+                Text::Owned(field_name),
+                Field::Text(Text::Owned(value.clone())),
+            );
+            if is_hex_arg_field(&line.event_type, key)
+                && !value.starts_with('"')
+                && !value.starts_with('\'')
+            {
                 if let Some(bytes) = hex_decode(value) {
                     let decoded_name = format!("linux.audit.{type_lower}.{key}_decoded");
                     data.insert(
@@ -263,7 +298,11 @@ pub struct AuditParserFactory {
 
 impl Default for AuditParserFactory {
     fn default() -> Self {
-        let requirements: Vec<Requirement> = DEFINITIONS.iter().copied().map(Requirement::artifact).collect();
+        let requirements: Vec<Requirement> = DEFINITIONS
+            .iter()
+            .copied()
+            .map(Requirement::artifact)
+            .collect();
         Self {
             descriptor: ParserDescriptor::new(
                 PARSER_ID,
@@ -295,7 +334,10 @@ impl ArtifactParserFactory for AuditParserFactory {
 
     fn open(&self, ctx: &ParseContext<'_>) -> ForensicResult<ParserRun> {
         let fs = ctx.vfs().cloned().ok_or_else(|| {
-            ForensicError::missing_data("FileSystem source required", CompactString::const_new(PARSER_ID))
+            ForensicError::missing_data(
+                "FileSystem source required",
+                CompactString::const_new(PARSER_ID),
+            )
         })?;
         if ctx.sources().catalog().is_none() {
             return Err(ForensicError::missing_data(
@@ -309,7 +351,8 @@ impl ArtifactParserFactory for AuditParserFactory {
         let cancellation = ctx.cancellation().clone();
 
         let mut head: Vec<ForensicResult<ForensicData>> = Vec::new();
-        let mut targets: std::collections::BTreeMap<FPathBuf, &'static str> = std::collections::BTreeMap::new();
+        let mut targets: std::collections::BTreeMap<FPathBuf, &'static str> =
+            std::collections::BTreeMap::new();
         for definition in DEFINITIONS.iter().copied() {
             let resolution = match ctx.resolve_artifact(definition) {
                 Ok(resolution) => resolution,
@@ -322,7 +365,10 @@ impl ArtifactParserFactory for AuditParserFactory {
             head.extend(resolution.unresolved.into_iter().map(|u| {
                 Err(ForensicError::other(
                     "catalog",
-                    format!("{definition}: source {:?} was not searched: {}", u.source, u.reason),
+                    format!(
+                        "{definition}: source {:?} was not searched: {}",
+                        u.source, u.reason
+                    ),
                 ))
             }));
             for note in &resolution.notes {
@@ -330,7 +376,10 @@ impl ArtifactParserFactory for AuditParserFactory {
             }
             for file in resolution.files {
                 if file.directory {
-                    debug!("{PARSER_ID}: {definition}: ignoring directory {}", file.path);
+                    debug!(
+                        "{PARSER_ID}: {definition}: ignoring directory {}",
+                        file.path
+                    );
                     continue;
                 }
                 targets.entry(file.path).or_insert(definition);
@@ -372,8 +421,14 @@ impl ArtifactParserFactory for AuditParserFactory {
                 macro_rules! flush {
                     () => {
                         if let Some(event) = current.take() {
-                            let data =
-                                event_to_forensic_data(&host, path.as_path(), &source, acquisition, &event, &current_raw);
+                            let data = event_to_forensic_data(
+                                &host,
+                                path.as_path(),
+                                &source,
+                                acquisition,
+                                &event,
+                                &current_raw,
+                            );
                             current_raw.clear();
                             if out.emit(Ok(data)).is_stop() {
                                 return Ok(());
@@ -392,7 +447,8 @@ impl ArtifactParserFactory for AuditParserFactory {
                     let text = line.text();
                     match parse_line(text.as_ref(), line.number) {
                         Ok(parsed) => {
-                            let same_event = current.as_ref().is_some_and(|e| e.serial == parsed.serial);
+                            let same_event =
+                                current.as_ref().is_some_and(|e| e.serial == parsed.serial);
                             if !same_event {
                                 flush!();
                                 current = Some(AuditEvent {
@@ -434,17 +490,20 @@ impl ArtifactParserFactory for AuditParserFactory {
 
 fn read_file(fs: &dyn FileSystem, path: &FPath) -> ForensicResult<Vec<u8>> {
     use std::io::Read;
-    let mut file = fs.open(path).map_err(|e| e.with_path(FPathBuf::from(path.as_str())))?;
+    let mut file = fs
+        .open(path)
+        .map_err(|e| e.with_path(FPathBuf::from(path.as_str())))?;
     let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)
-        .map_err(|e| ForensicError::io_error_with_source(e, format!("{PARSER_ID}: reading {path}")))?;
+    file.read_to_end(&mut bytes).map_err(|e| {
+        ForensicError::io_error_with_source(e, format!("{PARSER_ID}: reading {path}"))
+    })?;
     Ok(bytes)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::text::hex_encode;
+    use super::*;
 
     #[test]
     fn parses_a_user_auth_line_with_a_single_quoted_nested_kv_blob() {
@@ -481,7 +540,10 @@ mod tests {
         let a0 = line.fields.iter().find(|(k, _)| k == "a0").unwrap();
         assert_eq!(a0.1, hex_ls);
         assert!(is_hex_arg_field("EXECVE", "a0"));
-        assert!(!is_hex_arg_field("SYSCALL", "a0"), "a0 in a SYSCALL record is a raw kernel arg, not argv hex");
+        assert!(
+            !is_hex_arg_field("SYSCALL", "a0"),
+            "a0 in a SYSCALL record is a raw kernel arg, not argv hex"
+        );
     }
 
     #[test]
@@ -518,7 +580,10 @@ mod factory_tests {
             aliases: Cow::Borrowed(&[]),
             doc: Cow::Borrowed(""),
             sources: Cow::Owned(vec![SourceEntry {
-                source: ArtifactSource::File { paths: Cow::Borrowed(paths), separator: Separator::Slash },
+                source: ArtifactSource::File {
+                    paths: Cow::Borrowed(paths),
+                    separator: Separator::Slash,
+                },
                 supported_os: Cow::Borrowed(&[]),
             }]),
             supported_os: Cow::Borrowed(&[Os::Linux]),
@@ -527,12 +592,17 @@ mod factory_tests {
     }
 
     fn catalog() -> Arc<dyn ArtifactCatalog> {
-        let defs = vec![definition(AUDIT_DEF, &[Cow::Borrowed("/var/log/audit/audit.log")])];
+        let defs = vec![definition(
+            AUDIT_DEF,
+            &[Cow::Borrowed("/var/log/audit/audit.log")],
+        )];
         Arc::new(SliceCatalog::new(defs).unwrap())
     }
 
     fn sources(vfs: InMemoryVirtualFileSystem, with_catalog: bool) -> TriageSources {
-        let mut builder = TriageSources::builder().vfs(Arc::new(vfs)).acquisition(Acquisition::ImageRead);
+        let mut builder = TriageSources::builder()
+            .vfs(Arc::new(vfs))
+            .acquisition(Acquisition::ImageRead);
         if with_catalog {
             builder = builder.catalog(catalog());
         }
@@ -568,11 +638,23 @@ mod factory_tests {
         let bytes = b"type=SYSCALL msg=audit(1700000000.100:42): pid=100 uid=0 exe=\"/bin/ls\"\n\
                       type=CWD msg=audit(1700000000.100:42): cwd=\"/root\"\n\
                       type=USER_AUTH msg=audit(1700000100.200:43): pid=200 uid=1000\n";
-        let vfs = InMemoryVirtualFileSystem::new().with_file("var/log/audit/audit.log", bytes.to_vec());
+        let vfs =
+            InMemoryVirtualFileSystem::new().with_file("var/log/audit/audit.log", bytes.to_vec());
         let items = run(&sources(vfs, true));
-        assert!(items.iter().all(|i| i.is_ok()), "unexpected errors: {:?}", items.iter().filter_map(|i| i.as_ref().err()).collect::<Vec<_>>());
+        assert!(
+            items.iter().all(|i| i.is_ok()),
+            "unexpected errors: {:?}",
+            items
+                .iter()
+                .filter_map(|i| i.as_ref().err())
+                .collect::<Vec<_>>()
+        );
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
-        assert_eq!(records.len(), 2, "serial 42's two lines are one event; serial 43 is another");
+        assert_eq!(
+            records.len(),
+            2,
+            "serial 42's two lines are one event; serial 43 is another"
+        );
         let first = records[0];
         assert_eq!(first.field_as_u64(field::SERIAL), Some(42));
         assert_eq!(first.field_as_str(EVENT_ACTION), Some("CWD,SYSCALL"));
@@ -587,7 +669,8 @@ mod factory_tests {
     #[test]
     fn a_malformed_line_is_one_err_item_and_the_stream_continues() {
         let bytes = b"type=SYSCALL msg=audit(1700000000.100:1): pid=1\nnot an audit line\ntype=SYSCALL msg=audit(1700000000.100:2): pid=2\n";
-        let vfs = InMemoryVirtualFileSystem::new().with_file("var/log/audit/audit.log", bytes.to_vec());
+        let vfs =
+            InMemoryVirtualFileSystem::new().with_file("var/log/audit/audit.log", bytes.to_vec());
         let items = run(&sources(vfs, true));
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
         let errors: Vec<&ForensicError> = items.iter().filter_map(|i| i.as_ref().err()).collect();
@@ -597,7 +680,8 @@ mod factory_tests {
 
     #[test]
     fn without_a_catalog_the_parser_declines_instead_of_guessing_paths() {
-        let vfs = InMemoryVirtualFileSystem::new().with_file("var/log/audit/audit.log", b"whatever".to_vec());
+        let vfs = InMemoryVirtualFileSystem::new()
+            .with_file("var/log/audit/audit.log", b"whatever".to_vec());
         let sources = sources(vfs, false);
         let triage = TriageContext::new("TEST-HOST", "default");
         let cancellation = CancellationToken::new();

@@ -152,7 +152,11 @@ mod tests {
     #[test]
     fn a_trailing_newline_does_not_add_a_phantom_final_line() {
         let lines = scan_lines(b"a\nb\n");
-        let texts: Vec<&str> = lines.iter().map(|l| l.raw).map(|r| std::str::from_utf8(r).unwrap()).collect();
+        let texts: Vec<&str> = lines
+            .iter()
+            .map(|l| l.raw)
+            .map(|r| std::str::from_utf8(r).unwrap())
+            .collect();
         assert_eq!(texts, vec!["a", "b"]);
     }
 

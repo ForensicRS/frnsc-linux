@@ -178,7 +178,9 @@ mod tests {
         let mut buf = StreamBuffer::default();
         let early = ForensicTimestamp::from_unix_micros(1_000_000);
         let late = ForensicTimestamp::from_unix_micros(2_000_000);
-        assert!(buf.push(b"hel".to_vec(), false, "T1", Some(early)).is_none());
+        assert!(buf
+            .push(b"hel".to_vec(), false, "T1", Some(early))
+            .is_none());
         let timed = buf.push(b"lo\n".to_vec(), true, "T2", Some(late)).unwrap();
         assert_eq!(timed.line.bytes, b"hello\n");
         assert_eq!(timed.time_raw, "T1");

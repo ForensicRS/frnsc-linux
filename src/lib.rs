@@ -24,8 +24,8 @@ pub mod packages;
 pub mod schedule;
 pub mod shell;
 mod text;
-pub mod unix;
 pub mod units;
+pub mod unix;
 
 use std::sync::Arc;
 

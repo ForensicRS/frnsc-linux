@@ -25,16 +25,30 @@ const GENEROUS_CAP: u64 = 256 * 1024 * 1024;
 
 #[test]
 fn plain_matches_oracle_entry_count_and_fields() {
-    let data = read_bytes(forensic_testdata::artifact_or_skip!("linux-journal-plain-synthetic"));
+    let data = read_bytes(forensic_testdata::artifact_or_skip!(
+        "linux-journal-plain-synthetic"
+    ));
     let oracle = read_oracle(forensic_testdata::artifact_or_skip!(
         "linux-journal-plain-synthetic-oracle"
     ));
     let journal = JournalFile::parse(data).unwrap();
     let result = journal.read_all(GENEROUS_CAP);
-    let errs: Vec<_> = result.entries.iter().filter_map(|e| e.as_ref().err()).collect();
+    let errs: Vec<_> = result
+        .entries
+        .iter()
+        .filter_map(|e| e.as_ref().err())
+        .collect();
     assert!(errs.is_empty(), "unexpected errors: {errs:?}");
-    let ok_entries: Vec<_> = result.entries.iter().filter_map(|e| e.as_ref().ok()).collect();
-    assert_eq!(ok_entries.len(), oracle.len(), "entry count must match journalctl");
+    let ok_entries: Vec<_> = result
+        .entries
+        .iter()
+        .filter_map(|e| e.as_ref().ok())
+        .collect();
+    assert_eq!(
+        ok_entries.len(),
+        oracle.len(),
+        "entry count must match journalctl"
+    );
     for (entry, oracle_entry) in ok_entries.iter().zip(oracle.iter()) {
         let expected_message = oracle_entry["MESSAGE"].as_str().unwrap();
         let got_message = entry
@@ -69,9 +83,17 @@ fn uncompressed_matches_oracle() {
     ));
     let journal = JournalFile::parse(data).unwrap();
     let result = journal.read_all(GENEROUS_CAP);
-    let errs: Vec<_> = result.entries.iter().filter_map(|e| e.as_ref().err()).collect();
+    let errs: Vec<_> = result
+        .entries
+        .iter()
+        .filter_map(|e| e.as_ref().err())
+        .collect();
     assert!(errs.is_empty(), "unexpected errors: {errs:?}");
-    let ok_entries: Vec<_> = result.entries.iter().filter_map(|e| e.as_ref().ok()).collect();
+    let ok_entries: Vec<_> = result
+        .entries
+        .iter()
+        .filter_map(|e| e.as_ref().ok())
+        .collect();
     assert_eq!(ok_entries.len(), oracle.len(), "entry count");
     for (entry, oracle_entry) in ok_entries.iter().zip(oracle.iter()) {
         let expected_message = oracle_entry["MESSAGE"].as_str().unwrap();
@@ -99,9 +121,17 @@ fn compressed_matches_oracle_and_decompresses_correctly() {
         "fixture should be compressed"
     );
     let result = journal.read_all(GENEROUS_CAP);
-    let errs: Vec<_> = result.entries.iter().filter_map(|e| e.as_ref().err()).collect();
+    let errs: Vec<_> = result
+        .entries
+        .iter()
+        .filter_map(|e| e.as_ref().err())
+        .collect();
     assert!(errs.is_empty(), "unexpected errors: {errs:?}");
-    let ok_entries: Vec<_> = result.entries.iter().filter_map(|e| e.as_ref().ok()).collect();
+    let ok_entries: Vec<_> = result
+        .entries
+        .iter()
+        .filter_map(|e| e.as_ref().ok())
+        .collect();
     assert_eq!(ok_entries.len(), oracle.len(), "entry count");
     for (entry, oracle_entry) in ok_entries.iter().zip(oracle.iter()) {
         let expected_message = oracle_entry["MESSAGE"].as_str().unwrap();
@@ -117,18 +147,32 @@ fn compressed_matches_oracle_and_decompresses_correctly() {
 
 #[test]
 fn compact_mode_parses() {
-    let data = read_bytes(forensic_testdata::artifact_or_skip!("linux-journal-compact-synthetic"));
+    let data = read_bytes(forensic_testdata::artifact_or_skip!(
+        "linux-journal-compact-synthetic"
+    ));
     let oracle = read_oracle(forensic_testdata::artifact_or_skip!(
         "linux-journal-compact-synthetic-oracle"
     ));
     let journal = JournalFile::parse(data).unwrap();
     assert!(journal.header().is_compact());
     let result = journal.read_all(GENEROUS_CAP);
-    let errs: Vec<_> = result.entries.iter().filter_map(|e| e.as_ref().err()).collect();
+    let errs: Vec<_> = result
+        .entries
+        .iter()
+        .filter_map(|e| e.as_ref().err())
+        .collect();
     assert!(errs.is_empty(), "errors: {errs:?}");
-    let ok_entries: Vec<_> = result.entries.iter().filter_map(|e| e.as_ref().ok()).collect();
+    let ok_entries: Vec<_> = result
+        .entries
+        .iter()
+        .filter_map(|e| e.as_ref().ok())
+        .collect();
     assert_eq!(ok_entries.len(), oracle.len());
-    assert!(result.findings.is_empty(), "findings: {:?}", result.findings);
+    assert!(
+        result.findings.is_empty(),
+        "findings: {:?}",
+        result.findings
+    );
 }
 
 #[test]
@@ -142,9 +186,17 @@ fn keyed_hash_mode_parses_with_correct_hash_recompute() {
     let journal = JournalFile::parse(data).unwrap();
     assert!(journal.header().is_keyed_hash());
     let result = journal.read_all(GENEROUS_CAP);
-    let errs: Vec<_> = result.entries.iter().filter_map(|e| e.as_ref().err()).collect();
+    let errs: Vec<_> = result
+        .entries
+        .iter()
+        .filter_map(|e| e.as_ref().err())
+        .collect();
     assert!(errs.is_empty(), "errors: {errs:?}");
-    let ok_entries: Vec<_> = result.entries.iter().filter_map(|e| e.as_ref().ok()).collect();
+    let ok_entries: Vec<_> = result
+        .entries
+        .iter()
+        .filter_map(|e| e.as_ref().ok())
+        .collect();
     assert_eq!(ok_entries.len(), oracle.len());
     // The hash-recompute check specifically exercises siphash24 here (KEYED_HASH set); a clean
     // fixture must produce zero mismatches, which is the real cross-check that the hash function
@@ -165,7 +217,10 @@ fn online_stale_is_flagged() {
     assert_eq!(journal.header().state, header::State::Online);
     let result = journal.read_all(GENEROUS_CAP);
     assert!(
-        result.findings.iter().any(|f| f.to_string().contains("ONLINE")),
+        result
+            .findings
+            .iter()
+            .any(|f| f.to_string().contains("ONLINE")),
         "findings: {:?}",
         result.findings
     );
@@ -173,7 +228,9 @@ fn online_stale_is_flagged() {
 
 #[test]
 fn truncated_file_does_not_panic_and_reports_something() {
-    let data = read_bytes(forensic_testdata::artifact_or_skip!("linux-journal-truncated-synthetic"));
+    let data = read_bytes(forensic_testdata::artifact_or_skip!(
+        "linux-journal-truncated-synthetic"
+    ));
     let journal = JournalFile::parse(data).unwrap();
     let result = journal.read_all(GENEROUS_CAP);
     // Reaching this line without a panic is the point; entries/findings content isn't asserted
@@ -196,7 +253,11 @@ fn unlinked_entries_are_recovered_and_tagged() {
     ));
     let journal = JournalFile::parse(data).unwrap();
     let result = journal.read_all(GENEROUS_CAP);
-    let ok_entries: Vec<_> = result.entries.iter().filter_map(|e| e.as_ref().ok()).collect();
+    let ok_entries: Vec<_> = result
+        .entries
+        .iter()
+        .filter_map(|e| e.as_ref().ok())
+        .collect();
     let indexed: Vec<_> = ok_entries.iter().filter(|e| !e.recovery_only).collect();
     let recovery_only: Vec<_> = ok_entries.iter().filter(|e| e.recovery_only).collect();
     assert_eq!(
@@ -204,7 +265,11 @@ fn unlinked_entries_are_recovered_and_tagged() {
         oracle.len(),
         "indexed count must match journalctl's own (blind) count"
     );
-    assert_eq!(recovery_only.len(), 1, "exactly one entry was unlinked from the tail");
+    assert_eq!(
+        recovery_only.len(),
+        1,
+        "exactly one entry was unlinked from the tail"
+    );
     assert!(
         result
             .findings
@@ -217,51 +282,96 @@ fn unlinked_entries_are_recovered_and_tagged() {
 
 #[test]
 fn non_utf8_message_is_kept_as_raw_bytes() {
-    let data = read_bytes(forensic_testdata::artifact_or_skip!("linux-journal-non-utf8-synthetic"));
+    let data = read_bytes(forensic_testdata::artifact_or_skip!(
+        "linux-journal-non-utf8-synthetic"
+    ));
     let oracle = read_oracle(forensic_testdata::artifact_or_skip!(
         "linux-journal-non-utf8-synthetic-oracle"
     ));
     let journal = JournalFile::parse(data).unwrap();
     let result = journal.read_all(GENEROUS_CAP);
-    let errs: Vec<_> = result.entries.iter().filter_map(|e| e.as_ref().err()).collect();
+    let errs: Vec<_> = result
+        .entries
+        .iter()
+        .filter_map(|e| e.as_ref().err())
+        .collect();
     assert!(errs.is_empty(), "errors: {errs:?}");
-    let ok_entries: Vec<_> = result.entries.iter().filter_map(|e| e.as_ref().ok()).collect();
+    let ok_entries: Vec<_> = result
+        .entries
+        .iter()
+        .filter_map(|e| e.as_ref().ok())
+        .collect();
     let (idx, expected_bytes) = oracle
         .iter()
         .enumerate()
         .find_map(|(i, o)| {
-            o["MESSAGE"]
-                .as_array()
-                .map(|arr| (i, arr.iter().map(|b| b.as_u64().unwrap() as u8).collect::<Vec<u8>>()))
+            o["MESSAGE"].as_array().map(|arr| {
+                (
+                    i,
+                    arr.iter()
+                        .map(|b| b.as_u64().unwrap() as u8)
+                        .collect::<Vec<u8>>(),
+                )
+            })
         })
         .expect("oracle should have one non-utf8 MESSAGE entry");
     let entry = &ok_entries[idx];
-    let message_field = entry.fields.iter().find(|f| f.raw_name == "MESSAGE").unwrap();
+    let message_field = entry
+        .fields
+        .iter()
+        .find(|f| f.raw_name == "MESSAGE")
+        .unwrap();
     assert!(
         message_field.value_utf8.is_none(),
         "a non-utf8 value must not be reported as valid utf8"
     );
-    assert_eq!(message_field.value_raw, expected_bytes, "raw bytes must be kept exactly");
+    assert_eq!(
+        message_field.value_raw, expected_bytes,
+        "raw bytes must be kept exactly"
+    );
 }
 
 #[test]
 fn zip_bomb_message_decompresses_within_a_generous_cap_and_does_not_panic() {
-    let data = read_bytes(forensic_testdata::artifact_or_skip!("linux-journal-zip-bomb-synthetic"));
+    let data = read_bytes(forensic_testdata::artifact_or_skip!(
+        "linux-journal-zip-bomb-synthetic"
+    ));
     let journal = JournalFile::parse(data).unwrap();
     let result = journal.read_all(GENEROUS_CAP); // above the real fixture's 64 MiB message
-    let errs: Vec<_> = result.entries.iter().filter_map(|e| e.as_ref().err()).collect();
+    let errs: Vec<_> = result
+        .entries
+        .iter()
+        .filter_map(|e| e.as_ref().err())
+        .collect();
     assert!(errs.is_empty(), "errors: {errs:?}");
-    let ok_entries: Vec<_> = result.entries.iter().filter_map(|e| e.as_ref().ok()).collect();
+    let ok_entries: Vec<_> = result
+        .entries
+        .iter()
+        .filter_map(|e| e.as_ref().ok())
+        .collect();
     assert_eq!(ok_entries.len(), 1);
-    let message = ok_entries[0].fields.iter().find(|f| f.raw_name == "MESSAGE").unwrap();
+    let message = ok_entries[0]
+        .fields
+        .iter()
+        .find(|f| f.raw_name == "MESSAGE")
+        .unwrap();
     assert_eq!(message.value_raw.len(), 64 * 1024 * 1024);
 }
 
 #[test]
 fn zip_bomb_message_is_rejected_under_a_small_cap_not_oom() {
-    let data = read_bytes(forensic_testdata::artifact_or_skip!("linux-journal-zip-bomb-synthetic"));
+    let data = read_bytes(forensic_testdata::artifact_or_skip!(
+        "linux-journal-zip-bomb-synthetic"
+    ));
     let journal = JournalFile::parse(data).unwrap();
     let result = journal.read_all(1024 * 1024); // 1 MiB cap, far under the real 64 MiB message
-    let errs: Vec<_> = result.entries.iter().filter_map(|e| e.as_ref().err()).collect();
-    assert!(!errs.is_empty(), "a payload exceeding the cap must be an Err, not silently truncated");
+    let errs: Vec<_> = result
+        .entries
+        .iter()
+        .filter_map(|e| e.as_ref().err())
+        .collect();
+    assert!(
+        !errs.is_empty(),
+        "a payload exceeding the cap must be an Err, not silently truncated"
+    );
 }

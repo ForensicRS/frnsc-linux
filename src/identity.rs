@@ -104,7 +104,12 @@ fn kind_label(kind: Kind) -> &'static str {
     }
 }
 
-fn new_record(host: &str, kind: Kind, source: &SourceHandle, acquisition: Acquisition) -> ForensicData {
+fn new_record(
+    host: &str,
+    kind: Kind,
+    source: &SourceHandle,
+    acquisition: Acquisition,
+) -> ForensicData {
     let provenance = source.mint(acquisition, Recovery::Allocated);
     ForensicData::new(
         host,
@@ -184,7 +189,10 @@ fn distribution_release_record(
 ) -> ForensicData {
     let mut data = new_record(host, Kind::DistributionRelease, source, acquisition);
     base_fields(&mut data, path, definition, Kind::DistributionRelease);
-    data.set(field::RELEASE_TEXT, String::from_utf8_lossy(bytes).trim().to_string());
+    data.set(
+        field::RELEASE_TEXT,
+        String::from_utf8_lossy(bytes).trim().to_string(),
+    );
     data
 }
 
@@ -198,7 +206,10 @@ fn hostname_record(
 ) -> ForensicData {
     let mut data = new_record(host, Kind::Hostname, source, acquisition);
     base_fields(&mut data, path, definition, Kind::Hostname);
-    data.set(HOST_HOSTNAME, String::from_utf8_lossy(bytes).trim().to_string());
+    data.set(
+        HOST_HOSTNAME,
+        String::from_utf8_lossy(bytes).trim().to_string(),
+    );
     data
 }
 
@@ -221,7 +232,10 @@ fn timezone_records(
         let mut data = new_record(host, Kind::Timezone, source, acquisition);
         base_fields(&mut data, path, definition, Kind::Timezone);
         data.set(field::TIMEZONE_FORMAT, "text");
-        data.set(field::TIMEZONE_NAME, String::from_utf8_lossy(&bytes).trim().to_string());
+        data.set(
+            field::TIMEZONE_NAME,
+            String::from_utf8_lossy(&bytes).trim().to_string(),
+        );
         return vec![Ok(data)];
     }
 
@@ -300,7 +314,10 @@ fn fstab_records(
                 Err(_) => token_errors.push(
                     ForensicError::invalid_format(
                         "fstab line",
-                        format!("line {}: dump field {token:?} is present but not an integer", line.number),
+                        format!(
+                            "line {}: dump field {token:?} is present but not an integer",
+                            line.number
+                        ),
                     )
                     .with_path(path.to_owned()),
                 ),
@@ -312,7 +329,10 @@ fn fstab_records(
                 Err(_) => token_errors.push(
                     ForensicError::invalid_format(
                         "fstab line",
-                        format!("line {}: pass field {token:?} is present but not an integer", line.number),
+                        format!(
+                            "line {}: pass field {token:?} is present but not an integer",
+                            line.number
+                        ),
                     )
                     .with_path(path.to_owned()),
                 ),
@@ -334,8 +354,11 @@ pub struct IdentityParserFactory {
 
 impl Default for IdentityParserFactory {
     fn default() -> Self {
-        let requirements: Vec<Requirement> =
-            DEFINITIONS.iter().copied().map(Requirement::artifact).collect();
+        let requirements: Vec<Requirement> = DEFINITIONS
+            .iter()
+            .copied()
+            .map(Requirement::artifact)
+            .collect();
         Self {
             descriptor: ParserDescriptor::new(
                 PARSER_ID,
@@ -383,7 +406,10 @@ impl ArtifactParserFactory for IdentityParserFactory {
 
     fn open(&self, ctx: &ParseContext<'_>) -> ForensicResult<ParserRun> {
         let fs = ctx.vfs().cloned().ok_or_else(|| {
-            ForensicError::missing_data("FileSystem source required", CompactString::const_new(PARSER_ID))
+            ForensicError::missing_data(
+                "FileSystem source required",
+                CompactString::const_new(PARSER_ID),
+            )
         })?;
         if ctx.sources().catalog().is_none() {
             return Err(ForensicError::missing_data(
@@ -425,7 +451,10 @@ impl ArtifactParserFactory for IdentityParserFactory {
                 }
                 let leaf = file.artifact.as_ref();
                 let Some(kind) = classify(leaf) else {
-                    debug!("{PARSER_ID}: {}: unrecognized leaf definition {leaf}", file.path);
+                    debug!(
+                        "{PARSER_ID}: {}: unrecognized leaf definition {leaf}",
+                        file.path
+                    );
                     continue;
                 };
                 targets.insert(file.path.clone(), (leaf.to_string(), kind));
@@ -436,7 +465,12 @@ impl ArtifactParserFactory for IdentityParserFactory {
             .into_iter()
             .map(|(path, (definition, kind))| {
                 let source = ctx.register_source(SourceKey::Path(path.as_str().to_string()));
-                Target { path, definition, kind, source }
+                Target {
+                    path,
+                    definition,
+                    kind,
+                    source,
+                }
             })
             .collect();
 
@@ -536,9 +570,18 @@ mod tests {
 
     #[test]
     fn parses_bare_and_quoted_shell_kv_lines() {
-        assert_eq!(parse_shell_kv(r#"NAME="Ubuntu""#), Some(("NAME".to_string(), "Ubuntu".to_string())));
-        assert_eq!(parse_shell_kv("ID=ubuntu"), Some(("ID".to_string(), "ubuntu".to_string())));
-        assert_eq!(parse_shell_kv("VERSION_ID='22.04'"), Some(("VERSION_ID".to_string(), "22.04".to_string())));
+        assert_eq!(
+            parse_shell_kv(r#"NAME="Ubuntu""#),
+            Some(("NAME".to_string(), "Ubuntu".to_string()))
+        );
+        assert_eq!(
+            parse_shell_kv("ID=ubuntu"),
+            Some(("ID".to_string(), "ubuntu".to_string()))
+        );
+        assert_eq!(
+            parse_shell_kv("VERSION_ID='22.04'"),
+            Some(("VERSION_ID".to_string(), "22.04".to_string()))
+        );
         assert_eq!(parse_shell_kv("not a kv line"), None);
     }
 
@@ -564,7 +607,10 @@ mod factory_tests {
             name: Cow::Borrowed(name),
             aliases: Cow::Borrowed(&[]),
             doc: Cow::Borrowed(""),
-            sources: Cow::Owned(vec![SourceEntry { source, supported_os: Cow::Borrowed(&[]) }]),
+            sources: Cow::Owned(vec![SourceEntry {
+                source,
+                supported_os: Cow::Borrowed(&[]),
+            }]),
             supported_os: Cow::Borrowed(&[Os::Linux]),
             urls: Cow::Borrowed(&[]),
         }
@@ -573,7 +619,10 @@ mod factory_tests {
     fn file_def(name: &'static str, paths: &'static [Text]) -> ArtifactDefinition {
         definition(
             name,
-            ArtifactSource::File { paths: Cow::Borrowed(paths), separator: Separator::Slash },
+            ArtifactSource::File {
+                paths: Cow::Borrowed(paths),
+                separator: Separator::Slash,
+            },
         )
     }
 
@@ -589,13 +638,19 @@ mod factory_tests {
                     ]),
                 },
             ),
-            file_def("LinuxDistributionRelease", &[Cow::Borrowed("/etc/redhat-release")]),
+            file_def(
+                "LinuxDistributionRelease",
+                &[Cow::Borrowed("/etc/redhat-release")],
+            ),
             file_def("LinuxHostnameFile", &[Cow::Borrowed("/etc/hostname")]),
             file_def("LinuxTimezoneFile", &[Cow::Borrowed("/etc/timezone")]),
             file_def("LinuxFstab", &[Cow::Borrowed("/etc/fstab")]),
             file_def(
                 "LinuxSystemdOSRelease",
-                &[Cow::Borrowed("/etc/os-release"), Cow::Borrowed("/usr/lib/os-release")],
+                &[
+                    Cow::Borrowed("/etc/os-release"),
+                    Cow::Borrowed("/usr/lib/os-release"),
+                ],
             ),
             file_def("LinuxLocalTime", &[Cow::Borrowed("/etc/localtime")]),
             file_def("LinuxLSBRelease", &[Cow::Borrowed("/etc/lsb-release")]),
@@ -647,7 +702,10 @@ mod factory_tests {
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
         assert!(items.iter().all(|i| i.is_ok()));
         assert_eq!(records.len(), 3);
-        assert!(records.iter().any(|r| field(r, field::KEY) == Some("NAME") && field(r, field::VALUE) == Some("Ubuntu")));
+        assert!(records
+            .iter()
+            .any(|r| field(r, field::KEY) == Some("NAME")
+                && field(r, field::VALUE) == Some("Ubuntu")));
     }
 
     #[test]
@@ -657,7 +715,10 @@ mod factory_tests {
         let items = run(&sources(vfs));
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
         assert_eq!(records.len(), 2);
-        assert_eq!(field(records[0], ARTIFACT_DEFINITION), Some("LinuxLSBRelease"));
+        assert_eq!(
+            field(records[0], ARTIFACT_DEFINITION),
+            Some("LinuxLSBRelease")
+        );
     }
 
     #[test]
@@ -671,12 +732,16 @@ mod factory_tests {
 
     #[test]
     fn timezone_text_file_is_reported_as_text_with_its_name() {
-        let vfs = InMemoryVirtualFileSystem::new().with_file("etc/timezone", b"America/New_York\n".to_vec());
+        let vfs = InMemoryVirtualFileSystem::new()
+            .with_file("etc/timezone", b"America/New_York\n".to_vec());
         let items = run(&sources(vfs));
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
         assert_eq!(records.len(), 1);
         assert_eq!(field(records[0], field::TIMEZONE_FORMAT), Some("text"));
-        assert_eq!(field(records[0], field::TIMEZONE_NAME), Some("America/New_York"));
+        assert_eq!(
+            field(records[0], field::TIMEZONE_NAME),
+            Some("America/New_York")
+        );
     }
 
     #[test]
@@ -688,7 +753,10 @@ mod factory_tests {
         let items = run(&sources(vfs));
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
         assert_eq!(records.len(), 1);
-        assert_eq!(field(records[0], field::TIMEZONE_FORMAT), Some("binary_tzfile"));
+        assert_eq!(
+            field(records[0], field::TIMEZONE_FORMAT),
+            Some("binary_tzfile")
+        );
         assert_eq!(field(records[0], field::TIMEZONE_TZIF_VERSION), Some("2"));
     }
 
@@ -720,7 +788,10 @@ mod factory_tests {
         let items = run(&sources(vfs));
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
         assert_eq!(records.len(), 1);
-        assert_eq!(field(records[0], field::RAW_LINE), Some("/dev/sda1 / ext4 defaults 0 1"));
+        assert_eq!(
+            field(records[0], field::RAW_LINE),
+            Some("/dev/sda1 / ext4 defaults 0 1")
+        );
     }
 
     #[test]
@@ -734,7 +805,10 @@ mod factory_tests {
         // indistinguishable from an absent one in the field itself, but the raw line is kept and
         // an Err item surfaces the malformed token rather than silently dropping it.
         assert!(records[0].field_as_u64(field::FSTAB_PASS).is_none());
-        assert_eq!(field(records[0], field::RAW_LINE), Some("/dev/sda1 / ext4 defaults 0 X"));
+        assert_eq!(
+            field(records[0], field::RAW_LINE),
+            Some("/dev/sda1 / ext4 defaults 0 X")
+        );
         assert!(items.iter().any(|i| i.is_err()));
     }
 }

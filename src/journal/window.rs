@@ -99,7 +99,10 @@ mod tests {
     fn rejects_a_slice_past_the_declared_arena_even_if_the_file_is_longer() {
         let data = [0u8; 100];
         let win = Window::new(&data, 8, 10); // arena ends at byte 18
-        assert!(win.slice(15, 10).is_err(), "would read past declared_end=18");
+        assert!(
+            win.slice(15, 10).is_err(),
+            "would read past declared_end=18"
+        );
         assert!(win.slice(15, 3).is_ok());
     }
 

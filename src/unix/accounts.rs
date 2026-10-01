@@ -98,7 +98,11 @@ pub fn classify_password_field(raw: &str) -> PasswordField {
         return PasswordField::Locked;
     }
     if let Some(rest) = raw.strip_prefix('$') {
-        let algorithm = rest.split('$').next().filter(|s| !s.is_empty()).map(str::to_string);
+        let algorithm = rest
+            .split('$')
+            .next()
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
         return PasswordField::Hashed { algorithm };
     }
     // No `$` prefix but not `x`/`*`/`!...`/empty either: the traditional 13-character DES crypt
@@ -157,12 +161,20 @@ fn passwd_record(
         unreachable!("length checked above")
     };
     let uid: u64 = uid.parse().map_err(|_| {
-        malformed("passwd record", line.number, format!("uid {uid:?} is not a number"))
-            .with_path(path.to_owned())
+        malformed(
+            "passwd record",
+            line.number,
+            format!("uid {uid:?} is not a number"),
+        )
+        .with_path(path.to_owned())
     })?;
     let gid: u64 = gid.parse().map_err(|_| {
-        malformed("passwd record", line.number, format!("gid {gid:?} is not a number"))
-            .with_path(path.to_owned())
+        malformed(
+            "passwd record",
+            line.number,
+            format!("gid {gid:?} is not a number"),
+        )
+        .with_path(path.to_owned())
     })?;
 
     let provenance = source.mint(acquisition, Recovery::Allocated);
@@ -201,7 +213,8 @@ fn shadow_record(
     }
     let name = fields[0];
     let passwd = fields[1];
-    let aging: Result<Vec<Option<i64>>, ()> = fields[2..8].iter().map(|f| parse_aging_field(f)).collect();
+    let aging: Result<Vec<Option<i64>>, ()> =
+        fields[2..8].iter().map(|f| parse_aging_field(f)).collect();
     let aging = aging.map_err(|_| {
         malformed(
             "shadow record",
@@ -274,8 +287,12 @@ fn group_record(
     let gid = fields[2];
     let members = fields[3];
     let gid: u64 = gid.parse().map_err(|_| {
-        malformed("group record", line.number, format!("gid {gid:?} is not a number"))
-            .with_path(path.to_owned())
+        malformed(
+            "group record",
+            line.number,
+            format!("gid {gid:?} is not a number"),
+        )
+        .with_path(path.to_owned())
     })?;
 
     let provenance = source.mint(acquisition, Recovery::Allocated);
@@ -351,10 +368,7 @@ fn sudoers_records(
             data.set(field::RECORD_KIND, "sudoers_include");
             data.set(field::LINE_NUMBER, logical.starting_line as u64);
             data.set(field::SUDOERS_INCLUDE_TARGET, target.to_string());
-            data.set(
-                "linux.accounts.sudoers.include_kind",
-                kind,
-            );
+            data.set("linux.accounts.sudoers.include_kind", kind);
             out.push(data);
             continue;
         }
@@ -362,12 +376,16 @@ fn sudoers_records(
             continue; // an ordinary comment, not evidence of configuration
         }
         let first_token = trimmed.split_whitespace().next().unwrap_or("");
-        let mut data = ForensicData::new(host, Artifact::Linux(LinuxArtifacts::Accounts), provenance);
+        let mut data =
+            ForensicData::new(host, Artifact::Linux(LinuxArtifacts::Accounts), provenance);
         data.set(ARTIFACT_PATH, path.as_str().to_string());
         data.set(ARTIFACT_DEFINITION, definition);
         data.set(field::RECORD_KIND, "sudoers_directive");
         data.set(field::LINE_NUMBER, logical.starting_line as u64);
-        data.set(field::SUDOERS_DIRECTIVE_KIND, sudoers_directive_kind(first_token));
+        data.set(
+            field::SUDOERS_DIRECTIVE_KIND,
+            sudoers_directive_kind(first_token),
+        );
         data.set(field::SUDOERS_RAW_LINE, trimmed.to_string());
         out.push(data);
     }
@@ -387,8 +405,11 @@ pub struct AccountsParserFactory {
 
 impl Default for AccountsParserFactory {
     fn default() -> Self {
-        let requirements: Vec<Requirement> =
-            DEFINITIONS.iter().copied().map(Requirement::artifact).collect();
+        let requirements: Vec<Requirement> = DEFINITIONS
+            .iter()
+            .copied()
+            .map(Requirement::artifact)
+            .collect();
         Self {
             descriptor: ParserDescriptor::new(
                 PARSER_ID,
@@ -433,7 +454,10 @@ impl ArtifactParserFactory for AccountsParserFactory {
 
     fn open(&self, ctx: &ParseContext<'_>) -> ForensicResult<ParserRun> {
         let fs = ctx.vfs().cloned().ok_or_else(|| {
-            ForensicError::missing_data("FileSystem source required", CompactString::const_new(PARSER_ID))
+            ForensicError::missing_data(
+                "FileSystem source required",
+                CompactString::const_new(PARSER_ID),
+            )
         })?;
         if ctx.sources().catalog().is_none() {
             return Err(ForensicError::missing_data(
@@ -513,9 +537,14 @@ impl ArtifactParserFactory for AccountsParserFactory {
                 };
                 match record_kind_for_definition(definition) {
                     "sudoers" => {
-                        for data in
-                            sudoers_records(&host, definition, path.as_path(), &bytes, &source, acquisition)
-                        {
+                        for data in sudoers_records(
+                            &host,
+                            definition,
+                            path.as_path(),
+                            &bytes,
+                            &source,
+                            acquisition,
+                        ) {
                             if out.emit(Ok(data)).is_stop() {
                                 return Ok(());
                             }
@@ -532,15 +561,30 @@ impl ArtifactParserFactory for AccountsParserFactory {
                                 continue;
                             }
                             let result = match kind {
-                                "passwd" => {
-                                    passwd_record(&host, definition, path.as_path(), &line, &source, acquisition)
-                                }
-                                "shadow" => {
-                                    shadow_record(&host, definition, path.as_path(), &line, &source, acquisition)
-                                }
-                                _ => {
-                                    group_record(&host, definition, path.as_path(), &line, &source, acquisition)
-                                }
+                                "passwd" => passwd_record(
+                                    &host,
+                                    definition,
+                                    path.as_path(),
+                                    &line,
+                                    &source,
+                                    acquisition,
+                                ),
+                                "shadow" => shadow_record(
+                                    &host,
+                                    definition,
+                                    path.as_path(),
+                                    &line,
+                                    &source,
+                                    acquisition,
+                                ),
+                                _ => group_record(
+                                    &host,
+                                    definition,
+                                    path.as_path(),
+                                    &line,
+                                    &source,
+                                    acquisition,
+                                ),
                             };
                             if out.emit(result).is_stop() {
                                 return Ok(());
@@ -571,18 +615,25 @@ mod tests {
 
     #[test]
     fn classifies_delegated_empty_locked_and_hashed_fields() {
-        assert_eq!(classify_password_field("x"), PasswordField::DelegatedToShadow);
+        assert_eq!(
+            classify_password_field("x"),
+            PasswordField::DelegatedToShadow
+        );
         assert_eq!(classify_password_field(""), PasswordField::Empty);
         assert_eq!(classify_password_field("*"), PasswordField::Locked);
         assert_eq!(classify_password_field("!"), PasswordField::Locked);
         assert_eq!(classify_password_field("!!"), PasswordField::Locked);
         assert_eq!(
             classify_password_field("$6$abcdsalt$therealhashvalue"),
-            PasswordField::Hashed { algorithm: Some("6".to_string()) }
+            PasswordField::Hashed {
+                algorithm: Some("6".to_string())
+            }
         );
         assert_eq!(
             classify_password_field("$y$j9T$saltsalt$hashhash"),
-            PasswordField::Hashed { algorithm: Some("y".to_string()) }
+            PasswordField::Hashed {
+                algorithm: Some("y".to_string())
+            }
         );
         assert_eq!(
             classify_password_field("XhFpZhT.dGhIU"),
@@ -592,10 +643,22 @@ mod tests {
 
     #[test]
     fn sudoers_recognizes_hash_and_at_style_includes() {
-        assert_eq!(sudoers_include("#include /etc/sudoers.local"), Some(("file", "/etc/sudoers.local")));
-        assert_eq!(sudoers_include("#includedir /etc/sudoers.d"), Some(("directory", "/etc/sudoers.d")));
-        assert_eq!(sudoers_include("@include /etc/sudoers.local"), Some(("file", "/etc/sudoers.local")));
-        assert_eq!(sudoers_include("@includedir /etc/sudoers.d"), Some(("directory", "/etc/sudoers.d")));
+        assert_eq!(
+            sudoers_include("#include /etc/sudoers.local"),
+            Some(("file", "/etc/sudoers.local"))
+        );
+        assert_eq!(
+            sudoers_include("#includedir /etc/sudoers.d"),
+            Some(("directory", "/etc/sudoers.d"))
+        );
+        assert_eq!(
+            sudoers_include("@include /etc/sudoers.local"),
+            Some(("file", "/etc/sudoers.local"))
+        );
+        assert_eq!(
+            sudoers_include("@includedir /etc/sudoers.d"),
+            Some(("directory", "/etc/sudoers.d"))
+        );
         assert_eq!(sudoers_include("# a plain comment"), None);
     }
 
@@ -723,7 +786,11 @@ mod factory_tests {
         let items = run(&sources(vfs));
         assert_eq!(items.len(), 1);
         assert!(items[0].is_err());
-        assert!(items[0].as_ref().unwrap_err().to_string().contains("line 1"));
+        assert!(items[0]
+            .as_ref()
+            .unwrap_err()
+            .to_string()
+            .contains("line 1"));
     }
 
     #[test]
@@ -745,9 +812,18 @@ mod factory_tests {
         let items = run(&sources(vfs));
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
         assert_eq!(records.len(), 2);
-        assert_eq!(field(records[0], field::RECORD_KIND), Some("sudoers_include"));
-        assert_eq!(field(records[0], field::SUDOERS_INCLUDE_TARGET), Some("/etc/sudoers.d"));
-        assert_eq!(field(records[1], field::SUDOERS_RAW_LINE), Some("alice ALL=(ALL) ALL"));
+        assert_eq!(
+            field(records[0], field::RECORD_KIND),
+            Some("sudoers_include")
+        );
+        assert_eq!(
+            field(records[0], field::SUDOERS_INCLUDE_TARGET),
+            Some("/etc/sudoers.d")
+        );
+        assert_eq!(
+            field(records[1], field::SUDOERS_RAW_LINE),
+            Some("alice ALL=(ALL) ALL")
+        );
     }
 
     #[test]

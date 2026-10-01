@@ -142,7 +142,9 @@ fn entry_to_forensic_data(
                 );
                 data.insert(
                     Text::Owned(raw_key),
-                    Field::Text(Text::Owned(String::from_utf8_lossy(&f.value_raw).into_owned())),
+                    Field::Text(Text::Owned(
+                        String::from_utf8_lossy(&f.value_raw).into_owned(),
+                    )),
                 );
             }
         }
@@ -165,8 +167,14 @@ fn entry_to_forensic_data(
     }
     trusted_fields.sort();
     forgeable_fields.sort();
-    data.insert(Text::Borrowed(field::TRUSTED_FIELDS), Field::Array(trusted_fields));
-    data.insert(Text::Borrowed(field::FORGEABLE_FIELDS), Field::Array(forgeable_fields));
+    data.insert(
+        Text::Borrowed(field::TRUSTED_FIELDS),
+        Field::Array(trusted_fields),
+    );
+    data.insert(
+        Text::Borrowed(field::FORGEABLE_FIELDS),
+        Field::Array(forgeable_fields),
+    );
     if !malformed_field_names.is_empty() {
         malformed_field_names.sort();
         data.insert(
@@ -194,8 +202,11 @@ pub struct JournalParserFactory {
 
 impl Default for JournalParserFactory {
     fn default() -> Self {
-        let requirements: Vec<Requirement> =
-            DEFINITIONS.iter().copied().map(Requirement::artifact).collect();
+        let requirements: Vec<Requirement> = DEFINITIONS
+            .iter()
+            .copied()
+            .map(Requirement::artifact)
+            .collect();
         Self {
             descriptor: ParserDescriptor::new(
                 PARSER_ID,
@@ -228,7 +239,10 @@ impl ArtifactParserFactory for JournalParserFactory {
 
     fn open(&self, ctx: &ParseContext<'_>) -> ForensicResult<ParserRun> {
         let fs = ctx.vfs().cloned().ok_or_else(|| {
-            ForensicError::missing_data("FileSystem source required", CompactString::const_new(PARSER_ID))
+            ForensicError::missing_data(
+                "FileSystem source required",
+                CompactString::const_new(PARSER_ID),
+            )
         })?;
         if ctx.sources().catalog().is_none() {
             return Err(ForensicError::missing_data(
@@ -266,7 +280,10 @@ impl ArtifactParserFactory for JournalParserFactory {
             }
             for file in resolution.files {
                 if file.directory {
-                    debug!("{PARSER_ID}: {definition}: ignoring directory {}", file.path);
+                    debug!(
+                        "{PARSER_ID}: {definition}: ignoring directory {}",
+                        file.path
+                    );
                     continue;
                 }
                 if let Some(first) = targets.get(&file.path) {

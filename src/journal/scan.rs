@@ -310,7 +310,10 @@ mod tests {
         let result = scan(&win, 0, false, 1000);
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(result.entries.len(), 1);
-        assert!(!result.carving_used, "a clean zero tail needs no carving at all");
+        assert!(
+            !result.carving_used,
+            "a clean zero tail needs no carving at all"
+        );
     }
 
     #[test]
@@ -346,15 +349,21 @@ mod tests {
         buf.extend_from_slice(&entry_object_bytes(1, &[(0, 0)])); // offset 0, size 80
         let junk_start = buf.len();
         buf.extend_from_slice(&[0xFFu8; 16]); // garbage: not a valid object header
-        // pad to an 8-byte boundary, then place a real, carvable entry object
+                                              // pad to an 8-byte boundary, then place a real, carvable entry object
         let carve_target = junk_start + 16;
         buf.extend_from_slice(&entry_object_bytes(2, &[(0, 0)]));
         let win = Window::new(&buf, 0, buf.len() as u64);
         let result = scan(&win, 0, false, 1000);
         assert!(result.carving_used);
-        assert!(!result.errors.is_empty(), "the garbage bytes are reported, not silently skipped");
+        assert!(
+            !result.errors.is_empty(),
+            "the garbage bytes are reported, not silently skipped"
+        );
         let seqnums: Vec<u64> = result.entries.iter().map(|(_, e)| e.seqnum).collect();
         assert!(seqnums.contains(&1));
-        assert!(seqnums.contains(&2), "carving found the entry after the garbage at {carve_target}");
+        assert!(
+            seqnums.contains(&2),
+            "carving found the entry after the garbage at {carve_target}"
+        );
     }
 }

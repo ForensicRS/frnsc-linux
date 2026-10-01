@@ -34,12 +34,7 @@ pub struct ChainWalk {
 /// Walks the chain starting at `start_offset` (a `0` start offset means "no arrays", the ordinary
 /// shape of a journal file with zero entries — not an error). `hop_limit` bounds the walk
 /// independently of cycle detection, for a chain that grows without exactly repeating an offset.
-pub fn walk_chain(
-    win: &Window<'_>,
-    start_offset: u64,
-    compact: bool,
-    hop_limit: u64,
-) -> ChainWalk {
+pub fn walk_chain(win: &Window<'_>, start_offset: u64, compact: bool, hop_limit: u64) -> ChainWalk {
     let mut result = ChainWalk::default();
     if start_offset == 0 {
         return result;
@@ -156,7 +151,11 @@ mod tests {
         let win = Window::new(&buf, 0, buf.len() as u64);
         let walk = walk_chain(&win, 64, false, 1000);
         assert!(walk.cycle_detected);
-        assert_eq!(walk.arrays.len(), 1, "the array is recorded once, then the cycle is caught");
+        assert_eq!(
+            walk.arrays.len(),
+            1,
+            "the array is recorded once, then the cycle is caught"
+        );
     }
 
     #[test]
@@ -202,7 +201,11 @@ mod tests {
         buf[64..64 + 16].copy_from_slice(&[6, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0]);
         let win = Window::new(&buf, 0, buf.len() as u64);
         let walk = walk_chain(&win, 0, false, 100);
-        assert_eq!(walk.arrays.len(), 0, "start offset 0 is the empty-chain case in this fixture");
+        assert_eq!(
+            walk.arrays.len(),
+            0,
+            "start offset 0 is the empty-chain case in this fixture"
+        );
 
         // Re-run starting from the first real array instead, so the corrupt second link is
         // actually exercised.
@@ -212,7 +215,11 @@ mod tests {
         buf2[128..128 + 16].copy_from_slice(&[6, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0]);
         let win2 = Window::new(&buf2, 0, buf2.len() as u64);
         let walk2 = walk_chain(&win2, 64, false, 100);
-        assert_eq!(walk2.arrays.len(), 1, "the first, valid array is still recorded");
+        assert_eq!(
+            walk2.arrays.len(),
+            1,
+            "the first, valid array is still recorded"
+        );
         assert!(walk2.error.is_some());
         assert!(!walk2.cycle_detected);
     }

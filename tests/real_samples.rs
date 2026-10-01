@@ -20,7 +20,10 @@ fn real_sample_does_not_panic() {
 
 fn lines_of(path: &std::path::Path) -> Vec<String> {
     let bytes = std::fs::read(path).unwrap();
-    frnsc_linux::log::text::scan_lines(&bytes).iter().map(|l| l.text().into_owned()).collect()
+    frnsc_linux::log::text::scan_lines(&bytes)
+        .iter()
+        .map(|l| l.text().into_owned())
+        .collect()
 }
 
 #[test]
@@ -45,10 +48,17 @@ fn real_rfc5424_syslog_parses_every_line() {
     for line in &lines {
         let parsed = syslog::parse_line(line).unwrap_or_else(|e| panic!("{e}: {line:?}"));
         assert_eq!(parsed.format, syslog::SyslogFormat::Rfc5424);
-        assert!(parsed.timestamp.is_some(), "every line in this fixture carries a real timestamp");
+        assert!(
+            parsed.timestamp.is_some(),
+            "every line in this fixture carries a real timestamp"
+        );
     }
     // The fixture documents one structured-data element and one nil (`-`) case.
-    let with_sd = lines.iter().filter_map(|l| syslog::parse_line(l).ok()).filter(|p| p.structured_data.is_some()).count();
+    let with_sd = lines
+        .iter()
+        .filter_map(|l| syslog::parse_line(l).ok())
+        .filter(|p| p.structured_data.is_some())
+        .count();
     assert!(with_sd >= 1);
 }
 
@@ -60,7 +70,10 @@ fn real_authlog_has_no_pri_prefix_and_still_parses() {
     assert!(!lines.is_empty());
     for line in &lines {
         let parsed = syslog::parse_line(line).unwrap_or_else(|e| panic!("{e}: {line:?}"));
-        assert_eq!(parsed.priority, None, "this fixture's lines never carry a <PRI> prefix");
+        assert_eq!(
+            parsed.priority, None,
+            "this fixture's lines never carry a <PRI> prefix"
+        );
     }
 }
 
@@ -78,7 +91,11 @@ fn real_auditlog_groups_by_serial_and_never_panics() {
         let parsed = audit::parse_line(line, i + 1).unwrap_or_else(|e| panic!("{e}: {line:?}"));
         serials.insert(parsed.serial);
     }
-    assert_eq!(serials.len(), 3, "this fixture's USER_AUTH/USER_LOGIN/SYSCALL lines each carry a distinct serial");
+    assert_eq!(
+        serials.len(),
+        3,
+        "this fixture's USER_AUTH/USER_LOGIN/SYSCALL lines each carry a distinct serial"
+    );
 }
 
 #[test]
@@ -101,5 +118,8 @@ fn real_bash_history_histtimeformat_has_a_timestamp_per_command() {
     let text_lines = frnsc_linux::log::text::scan_lines(&bytes);
     let entries = shell::parse_bash(&text_lines);
     assert!(!entries.is_empty());
-    assert!(entries.iter().all(|e| e.timestamp.is_some()), "every command in this fixture is preceded by a #<epoch> marker");
+    assert!(
+        entries.iter().all(|e| e.timestamp.is_some()),
+        "every command in this fixture is preceded by a #<epoch> marker"
+    );
 }

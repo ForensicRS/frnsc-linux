@@ -32,9 +32,9 @@ const KIND: &str = "docker json-file log line";
 pub(crate) fn parse_line(line: &[u8]) -> ForensicResult<DockerLogLine> {
     let value: serde_json::Value = serde_json::from_slice(line)
         .map_err(|e| ForensicError::invalid_format(KIND, format!("invalid JSON: {e}")))?;
-    let obj = value
-        .as_object()
-        .ok_or_else(|| ForensicError::invalid_format(KIND, "top-level value is not a JSON object"))?;
+    let obj = value.as_object().ok_or_else(|| {
+        ForensicError::invalid_format(KIND, "top-level value is not a JSON object")
+    })?;
     let message = obj
         .get("log")
         .and_then(|v| v.as_str())
@@ -51,7 +51,12 @@ pub(crate) fn parse_line(line: &[u8]) -> ForensicResult<DockerLogLine> {
         .ok_or_else(|| ForensicError::invalid_format(KIND, "missing string field \"time\""))?
         .to_string();
     let timestamp = parse_rfc3339_nano(&time_raw);
-    Ok(DockerLogLine { message, stream, time_raw, timestamp })
+    Ok(DockerLogLine {
+        message,
+        stream,
+        time_raw,
+        timestamp,
+    })
 }
 
 /// Whether `message` (a line's `"log"` field) closes the logical line, per the module docs.
@@ -92,16 +97,19 @@ const HOSTCONFIG_KIND: &str = "docker hostconfig.json";
 pub(crate) fn parse_config_v2(bytes: &[u8]) -> ForensicResult<DockerContainerIdentity> {
     let value: serde_json::Value = serde_json::from_slice(bytes)
         .map_err(|e| ForensicError::invalid_format(CONFIG_KIND, format!("invalid JSON: {e}")))?;
-    let obj = value
-        .as_object()
-        .ok_or_else(|| ForensicError::invalid_format(CONFIG_KIND, "top-level value is not a JSON object"))?;
+    let obj = value.as_object().ok_or_else(|| {
+        ForensicError::invalid_format(CONFIG_KIND, "top-level value is not a JSON object")
+    })?;
 
     let id = obj.get("ID").and_then(|v| v.as_str()).map(str::to_string);
     let name = obj
         .get("Name")
         .and_then(|v| v.as_str())
         .map(|n| n.strip_prefix('/').unwrap_or(n).to_string());
-    let image_id = obj.get("Image").and_then(|v| v.as_str()).map(str::to_string);
+    let image_id = obj
+        .get("Image")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
     let config = obj.get("Config").and_then(|v| v.as_object());
     let image = config
         .and_then(|c| c.get("Image"))
@@ -135,8 +143,9 @@ pub(crate) fn merge_hostconfig(
     identity: &mut DockerContainerIdentity,
     bytes: &[u8],
 ) -> ForensicResult<()> {
-    let value: serde_json::Value = serde_json::from_slice(bytes)
-        .map_err(|e| ForensicError::invalid_format(HOSTCONFIG_KIND, format!("invalid JSON: {e}")))?;
+    let value: serde_json::Value = serde_json::from_slice(bytes).map_err(|e| {
+        ForensicError::invalid_format(HOSTCONFIG_KIND, format!("invalid JSON: {e}"))
+    })?;
     let obj = value.as_object().ok_or_else(|| {
         ForensicError::invalid_format(HOSTCONFIG_KIND, "top-level value is not a JSON object")
     })?;
@@ -157,7 +166,8 @@ mod tests {
 
     #[test]
     fn parses_a_well_formed_line() {
-        let line = br#"{"log":"hello world\n","stream":"stdout","time":"2023-11-15T12:34:56.000000000Z"}"#;
+        let line =
+            br#"{"log":"hello world\n","stream":"stdout","time":"2023-11-15T12:34:56.000000000Z"}"#;
         let record = parse_line(line).unwrap();
         assert_eq!(record.message, "hello world\n");
         assert_eq!(record.stream, "stdout");

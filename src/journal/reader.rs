@@ -242,8 +242,14 @@ fn parse_and_resolve_entry(
 ) -> ForensicResult<(ResolvedEntry, Vec<ForensicResult<ResolvedEntry>>)> {
     let obj_header = object::parse_header(win, offset)?;
     let entry_obj = object::parse_entry_object(win, offset, &obj_header, compact)?;
-    let (fields, field_errors) =
-        resolve_fields(win, header, &entry_obj, compact, max_decompressed, hash_stats);
+    let (fields, field_errors) = resolve_fields(
+        win,
+        header,
+        &entry_obj,
+        compact,
+        max_decompressed,
+        hash_stats,
+    );
     Ok((
         ResolvedEntry {
             offset: entry_obj.offset,
@@ -281,9 +287,9 @@ fn resolve_fields(
         if item.object_offset == 0 {
             continue; // an empty/unused item slot, not a real reference
         }
-        let data_obj = match object::parse_header(win, item.object_offset).and_then(|h| {
-            object::parse_data_object(win, item.object_offset, &h, compact)
-        }) {
+        let data_obj = match object::parse_header(win, item.object_offset)
+            .and_then(|h| object::parse_data_object(win, item.object_offset, &h, compact))
+        {
             Ok(d) => d,
             Err(e) => {
                 let context = format!("journal entry at offset {}", entry.offset);
@@ -305,13 +311,15 @@ fn resolve_fields(
 
         let decompressed = match data_obj.compression {
             None => data_obj.payload_raw.clone(),
-            Some(codec) => match compress::decompress(codec, &data_obj.payload_raw, max_decompressed) {
-                Ok(bytes) => bytes,
-                Err(e) => {
-                    errors.push(Err(e.with_offset(data_obj.offset)));
-                    continue;
+            Some(codec) => {
+                match compress::decompress(codec, &data_obj.payload_raw, max_decompressed) {
+                    Ok(bytes) => bytes,
+                    Err(e) => {
+                        errors.push(Err(e.with_offset(data_obj.offset)));
+                        continue;
+                    }
                 }
-            },
+            }
         };
 
         let recomputed = if header.is_keyed_hash() {
@@ -410,7 +418,10 @@ fn resolved_entry_to_event_record(header: &Header, entry: &ResolvedEntry) -> Eve
             "_HOSTNAME" => computer = value.clone(),
             _ => {}
         }
-        data.insert(Text::Owned(f.raw_name.clone()), Field::Text(Text::Owned(value)));
+        data.insert(
+            Text::Owned(f.raw_name.clone()),
+            Field::Text(Text::Owned(value)),
+        );
     }
     EventRecord {
         record_id: entry.seqnum,
@@ -503,7 +514,10 @@ mod tests {
         // The lossy decode a caller derives from these bytes loses information, which is exactly
         // why `name_raw` exists on `ResolvedField` — this asserts the raw bytes split_field hands
         // back are the untouched originals, not a lossy string.
-        assert_ne!(String::from_utf8_lossy(name).into_owned().into_bytes(), name);
+        assert_ne!(
+            String::from_utf8_lossy(name).into_owned().into_bytes(),
+            name
+        );
     }
 
     #[test]

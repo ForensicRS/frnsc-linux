@@ -56,7 +56,9 @@ pub const DEFINITIONS: &[&str] = &[
 
 /// Every `Linux(ShellHistory(..))` sub-artifact tag this parser can emit, regardless of which
 /// definition led to it — used to build [`ShellHistoryParserFactory`]'s declared artifact set.
-const KINDS: &[&str] = &["bash", "zsh", "fish", "sh", "python", "mysql", "less", "unknown"];
+const KINDS: &[&str] = &[
+    "bash", "zsh", "fish", "sh", "python", "mysql", "less", "unknown",
+];
 
 /// Resolves the shell-history sub-format for a file matched under `definition`. Single-shell
 /// definitions map directly; the two multi-shell definitions fall back to the resolved filename.
@@ -141,7 +143,12 @@ pub fn parse_bash(lines: &[crate::log::text::TextLine<'_>]) -> Vec<ShellHistoryE
             continue;
         }
         let timestamp = pending_epoch.take().map(ForensicTimestamp::from_unix_secs);
-        out.push(ShellHistoryEntry { command: text.clone(), timestamp, elapsed_seconds: None, raw: text });
+        out.push(ShellHistoryEntry {
+            command: text.clone(),
+            timestamp,
+            elapsed_seconds: None,
+            raw: text,
+        });
     }
     out
 }
@@ -170,7 +177,11 @@ pub fn parse_zsh(lines: &[crate::log::text::TextLine<'_>]) -> Vec<ShellHistoryEn
         let text = line.text().into_owned();
         if continuing {
             let ends_backslash = text.ends_with('\\');
-            let content = if ends_backslash { text.get(..text.len() - 1).unwrap_or("") } else { text.as_str() };
+            let content = if ends_backslash {
+                text.get(..text.len() - 1).unwrap_or("")
+            } else {
+                text.as_str()
+            };
             if let Some(last) = out.last_mut() {
                 last.command.push('\n');
                 last.command.push_str(content);
@@ -183,7 +194,11 @@ pub fn parse_zsh(lines: &[crate::log::text::TextLine<'_>]) -> Vec<ShellHistoryEn
         match zsh_extended(&text) {
             Some((epoch, elapsed, cmd)) => {
                 let ends_backslash = cmd.ends_with('\\');
-                let command = if ends_backslash { cmd.get(..cmd.len() - 1).unwrap_or(cmd) } else { cmd };
+                let command = if ends_backslash {
+                    cmd.get(..cmd.len() - 1).unwrap_or(cmd)
+                } else {
+                    cmd
+                };
                 out.push(ShellHistoryEntry {
                     command: command.to_string(),
                     timestamp: Some(ForensicTimestamp::from_unix_secs(epoch)),
@@ -193,7 +208,12 @@ pub fn parse_zsh(lines: &[crate::log::text::TextLine<'_>]) -> Vec<ShellHistoryEn
                 continuing = ends_backslash;
             }
             None => {
-                out.push(ShellHistoryEntry { command: text.clone(), timestamp: None, elapsed_seconds: None, raw: text });
+                out.push(ShellHistoryEntry {
+                    command: text.clone(),
+                    timestamp: None,
+                    elapsed_seconds: None,
+                    raw: text,
+                });
                 continuing = false;
             }
         }
@@ -218,7 +238,12 @@ pub fn parse_fish(lines: &[crate::log::text::TextLine<'_>]) -> Vec<ShellHistoryE
                 last.raw = raw_lines.join("\n");
             }
             raw_lines = vec![text.clone()];
-            out.push(ShellHistoryEntry { command: cmd.to_string(), timestamp: None, elapsed_seconds: None, raw: String::new() });
+            out.push(ShellHistoryEntry {
+                command: cmd.to_string(),
+                timestamp: None,
+                elapsed_seconds: None,
+                raw: String::new(),
+            });
             continue;
         }
         if let Some(rest) = text.strip_prefix("  when: ") {
@@ -244,12 +269,20 @@ pub fn parse_plain(lines: &[crate::log::text::TextLine<'_>]) -> Vec<ShellHistory
         .filter(|l| !l.raw.is_empty())
         .map(|l| {
             let text = l.text().into_owned();
-            ShellHistoryEntry { command: text.clone(), timestamp: None, elapsed_seconds: None, raw: text }
+            ShellHistoryEntry {
+                command: text.clone(),
+                timestamp: None,
+                elapsed_seconds: None,
+                raw: text,
+            }
         })
         .collect()
 }
 
-fn parse_entries(variant: ShellVariant, lines: &[crate::log::text::TextLine<'_>]) -> Vec<ShellHistoryEntry> {
+fn parse_entries(
+    variant: ShellVariant,
+    lines: &[crate::log::text::TextLine<'_>],
+) -> Vec<ShellHistoryEntry> {
     match variant {
         ShellVariant::Bash => parse_bash(lines),
         ShellVariant::Zsh => parse_zsh(lines),
@@ -326,7 +359,11 @@ pub struct ShellHistoryParserFactory {
 
 impl Default for ShellHistoryParserFactory {
     fn default() -> Self {
-        let requirements: Vec<Requirement> = DEFINITIONS.iter().copied().map(Requirement::artifact).collect();
+        let requirements: Vec<Requirement> = DEFINITIONS
+            .iter()
+            .copied()
+            .map(Requirement::artifact)
+            .collect();
         Self {
             descriptor: ParserDescriptor::new(
                 PARSER_ID,
@@ -364,7 +401,10 @@ impl ArtifactParserFactory for ShellHistoryParserFactory {
 
     fn open(&self, ctx: &ParseContext<'_>) -> ForensicResult<ParserRun> {
         let fs = ctx.vfs().cloned().ok_or_else(|| {
-            ForensicError::missing_data("FileSystem source required", CompactString::const_new(PARSER_ID))
+            ForensicError::missing_data(
+                "FileSystem source required",
+                CompactString::const_new(PARSER_ID),
+            )
         })?;
         if ctx.sources().catalog().is_none() {
             return Err(ForensicError::missing_data(
@@ -391,7 +431,10 @@ impl ArtifactParserFactory for ShellHistoryParserFactory {
             head.extend(resolution.unresolved.into_iter().map(|u| {
                 Err(ForensicError::other(
                     "catalog",
-                    format!("{definition}: source {:?} was not searched: {}", u.source, u.reason),
+                    format!(
+                        "{definition}: source {:?} was not searched: {}",
+                        u.source, u.reason
+                    ),
                 ))
             }));
             for note in &resolution.notes {
@@ -399,7 +442,10 @@ impl ArtifactParserFactory for ShellHistoryParserFactory {
             }
             for file in resolution.files {
                 if file.directory {
-                    debug!("{PARSER_ID}: {definition}: ignoring directory {}", file.path);
+                    debug!(
+                        "{PARSER_ID}: {definition}: ignoring directory {}",
+                        file.path
+                    );
                     continue;
                 }
                 if let Some(first) = targets.get(&file.path) {
@@ -470,10 +516,13 @@ impl ArtifactParserFactory for ShellHistoryParserFactory {
 
 fn read_file(fs: &dyn FileSystem, path: &FPath) -> ForensicResult<Vec<u8>> {
     use std::io::Read;
-    let mut file = fs.open(path).map_err(|e| e.with_path(FPathBuf::from(path.as_str())))?;
+    let mut file = fs
+        .open(path)
+        .map_err(|e| e.with_path(FPathBuf::from(path.as_str())))?;
     let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)
-        .map_err(|e| ForensicError::io_error_with_source(e, format!("{PARSER_ID}: reading {path}")))?;
+    file.read_to_end(&mut bytes).map_err(|e| {
+        ForensicError::io_error_with_source(e, format!("{PARSER_ID}: reading {path}"))
+    })?;
     Ok(bytes)
 }
 
@@ -565,25 +614,48 @@ mod tests {
 
     #[test]
     fn shell_kind_from_filename_covers_every_known_suffix() {
-        assert_eq!(shell_kind_from_filename(FPathBuf::from("root/.bash_history").as_path()), "bash");
-        assert_eq!(shell_kind_from_filename(FPathBuf::from("root/.zsh_history").as_path()), "zsh");
-        assert_eq!(shell_kind_from_filename(FPathBuf::from("root/.zhistory").as_path()), "zsh");
         assert_eq!(
-            shell_kind_from_filename(FPathBuf::from("root/.local/share/fish/fish_history").as_path()),
+            shell_kind_from_filename(FPathBuf::from("root/.bash_history").as_path()),
+            "bash"
+        );
+        assert_eq!(
+            shell_kind_from_filename(FPathBuf::from("root/.zsh_history").as_path()),
+            "zsh"
+        );
+        assert_eq!(
+            shell_kind_from_filename(FPathBuf::from("root/.zhistory").as_path()),
+            "zsh"
+        );
+        assert_eq!(
+            shell_kind_from_filename(
+                FPathBuf::from("root/.local/share/fish/fish_history").as_path()
+            ),
             "fish"
         );
-        assert_eq!(shell_kind_from_filename(FPathBuf::from("root/.sh_history").as_path()), "sh");
-        assert_eq!(shell_kind_from_filename(FPathBuf::from("root/.mystery_history").as_path()), "unknown");
+        assert_eq!(
+            shell_kind_from_filename(FPathBuf::from("root/.sh_history").as_path()),
+            "sh"
+        );
+        assert_eq!(
+            shell_kind_from_filename(FPathBuf::from("root/.mystery_history").as_path()),
+            "unknown"
+        );
     }
 
     #[test]
     fn username_from_path_reads_root_and_home_segments() {
-        assert_eq!(username_from_path(FPathBuf::from("root/.bash_history").as_path()).as_deref(), Some("root"));
+        assert_eq!(
+            username_from_path(FPathBuf::from("root/.bash_history").as_path()).as_deref(),
+            Some("root")
+        );
         assert_eq!(
             username_from_path(FPathBuf::from("home/alice/.bash_history").as_path()).as_deref(),
             Some("alice")
         );
-        assert_eq!(username_from_path(FPathBuf::from("var/lib/x").as_path()), None);
+        assert_eq!(
+            username_from_path(FPathBuf::from("var/lib/x").as_path()),
+            None
+        );
     }
 }
 
@@ -602,7 +674,10 @@ mod factory_tests {
             aliases: Cow::Borrowed(&[]),
             doc: Cow::Borrowed(""),
             sources: Cow::Owned(vec![SourceEntry {
-                source: ArtifactSource::File { paths: Cow::Borrowed(paths), separator: Separator::Slash },
+                source: ArtifactSource::File {
+                    paths: Cow::Borrowed(paths),
+                    separator: Separator::Slash,
+                },
                 supported_os: Cow::Borrowed(&[]),
             }]),
             supported_os: Cow::Borrowed(&[Os::Linux]),
@@ -612,12 +687,27 @@ mod factory_tests {
 
     fn catalog() -> Arc<dyn ArtifactCatalog> {
         let defs = vec![
-            definition("BashShellHistoryFile", &[Cow::Borrowed("/home/*/.bash_history")]),
-            definition("BourneShellHistoryFile", &[Cow::Borrowed("/home/*/.sh_history")]),
-            definition("FishShellHistoryFile", &[Cow::Borrowed("/home/*/.local/share/fish/fish_history")]),
+            definition(
+                "BashShellHistoryFile",
+                &[Cow::Borrowed("/home/*/.bash_history")],
+            ),
+            definition(
+                "BourneShellHistoryFile",
+                &[Cow::Borrowed("/home/*/.sh_history")],
+            ),
+            definition(
+                "FishShellHistoryFile",
+                &[Cow::Borrowed("/home/*/.local/share/fish/fish_history")],
+            ),
             definition("LessHistoryFile", &[Cow::Borrowed("/home/*/.lesshst")]),
-            definition("MySQLHistoryFile", &[Cow::Borrowed("/home/*/.mysql_history")]),
-            definition("PythonHistoryFile", &[Cow::Borrowed("/home/*/.python_history")]),
+            definition(
+                "MySQLHistoryFile",
+                &[Cow::Borrowed("/home/*/.mysql_history")],
+            ),
+            definition(
+                "PythonHistoryFile",
+                &[Cow::Borrowed("/home/*/.python_history")],
+            ),
             definition(
                 "RootUserShellHistory",
                 &[
@@ -637,13 +727,21 @@ mod factory_tests {
                     Cow::Borrowed("/home/*/.zsh_history"),
                 ],
             ),
-            definition("ZShellHistoryFile", &[Cow::Borrowed("/home/*/.zsh_history"), Cow::Borrowed("/home/*/.zhistory")]),
+            definition(
+                "ZShellHistoryFile",
+                &[
+                    Cow::Borrowed("/home/*/.zsh_history"),
+                    Cow::Borrowed("/home/*/.zhistory"),
+                ],
+            ),
         ];
         Arc::new(SliceCatalog::new(defs).unwrap())
     }
 
     fn sources(vfs: InMemoryVirtualFileSystem, with_catalog: bool) -> TriageSources {
-        let mut builder = TriageSources::builder().vfs(Arc::new(vfs)).acquisition(Acquisition::ImageRead);
+        let mut builder = TriageSources::builder()
+            .vfs(Arc::new(vfs))
+            .acquisition(Acquisition::ImageRead);
         if with_catalog {
             builder = builder.catalog(catalog());
         }
@@ -677,32 +775,42 @@ mod factory_tests {
     #[test]
     fn a_bash_history_file_gets_the_bash_kind_and_the_home_derived_user() {
         let bytes = b"ls -la\ncd /tmp\n";
-        let vfs = InMemoryVirtualFileSystem::new().with_file("home/alice/.bash_history", bytes.to_vec());
+        let vfs =
+            InMemoryVirtualFileSystem::new().with_file("home/alice/.bash_history", bytes.to_vec());
         let items = run(&sources(vfs, true));
         assert!(items.iter().all(|i| i.is_ok()));
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
         assert_eq!(records.len(), 2);
-        assert!(matches!(records[0].artifact(), Artifact::Linux(LinuxArtifacts::ShellHistory(k)) if k == "bash"));
+        assert!(
+            matches!(records[0].artifact(), Artifact::Linux(LinuxArtifacts::ShellHistory(k)) if k == "bash")
+        );
         assert_eq!(records[0].field_as_str(USER_NAME), Some("alice"));
-        assert_eq!(records[0].field_as_str("linux.shell_history.command"), Some("ls -la"));
+        assert_eq!(
+            records[0].field_as_str("linux.shell_history.command"),
+            Some("ls -la")
+        );
         assert!(records[0].field_as_date(TIMESTAMP).is_none());
     }
 
     #[test]
     fn root_history_derives_fish_from_the_resolved_filename() {
         let bytes = b"- cmd: ls -la\n  when: 1699999999\n";
-        let vfs = InMemoryVirtualFileSystem::new().with_file("root/.local/share/fish/fish_history", bytes.to_vec());
+        let vfs = InMemoryVirtualFileSystem::new()
+            .with_file("root/.local/share/fish/fish_history", bytes.to_vec());
         let items = run(&sources(vfs, true));
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
         assert_eq!(records.len(), 1);
-        assert!(matches!(records[0].artifact(), Artifact::Linux(LinuxArtifacts::ShellHistory(k)) if k == "fish"));
+        assert!(
+            matches!(records[0].artifact(), Artifact::Linux(LinuxArtifacts::ShellHistory(k)) if k == "fish")
+        );
         assert_eq!(records[0].field_as_str(USER_NAME), Some("root"));
         assert!(records[0].field_as_date(TIMESTAMP).is_some());
     }
 
     #[test]
     fn without_a_catalog_the_parser_declines_instead_of_guessing_paths() {
-        let vfs = InMemoryVirtualFileSystem::new().with_file("home/alice/.bash_history", b"ls".to_vec());
+        let vfs =
+            InMemoryVirtualFileSystem::new().with_file("home/alice/.bash_history", b"ls".to_vec());
         let sources = sources(vfs, false);
         let triage = TriageContext::new("TEST-HOST", "default");
         let cancellation = CancellationToken::new();

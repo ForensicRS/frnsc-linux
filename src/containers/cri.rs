@@ -28,10 +28,8 @@ pub(crate) struct CriLogLine {
 /// caller keeps scanning the rest of the file.
 pub(crate) fn parse_line(line: &[u8]) -> ForensicResult<CriLogLine> {
     let first_space = find(line, 0).ok_or_else(|| missing_field(KIND, "stream"))?;
-    let second_space =
-        find(line, first_space + 1).ok_or_else(|| missing_field(KIND, "P/F tag"))?;
-    let third_space =
-        find(line, second_space + 1).ok_or_else(|| missing_field(KIND, "message"))?;
+    let second_space = find(line, first_space + 1).ok_or_else(|| missing_field(KIND, "P/F tag"))?;
+    let third_space = find(line, second_space + 1).ok_or_else(|| missing_field(KIND, "message"))?;
 
     let time_raw = std::str::from_utf8(&line[..first_space])
         .map_err(|_| ForensicError::invalid_format(KIND, "timestamp field is not valid UTF-8"))?
@@ -56,11 +54,20 @@ pub(crate) fn parse_line(line: &[u8]) -> ForensicResult<CriLogLine> {
     let message = line[third_space + 1..].to_vec();
     let timestamp = parse_rfc3339_nano(&time_raw);
 
-    Ok(CriLogLine { time_raw, timestamp, stream, is_final, message })
+    Ok(CriLogLine {
+        time_raw,
+        timestamp,
+        stream,
+        is_final,
+        message,
+    })
 }
 
 fn find(line: &[u8], from: usize) -> Option<usize> {
-    line.get(from..)?.iter().position(|&b| b == b' ').map(|p| p + from)
+    line.get(from..)?
+        .iter()
+        .position(|&b| b == b' ')
+        .map(|p| p + from)
 }
 
 fn missing_field(kind: &'static str, field: &str) -> ForensicError {

@@ -149,7 +149,8 @@ impl Header {
     }
 
     pub fn is_keyed_hash(&self) -> bool {
-        self.incompatible_flags.contains(IncompatibleFlags::KEYED_HASH)
+        self.incompatible_flags
+            .contains(IncompatibleFlags::KEYED_HASH)
     }
 
     pub fn is_sealed(&self) -> bool {
@@ -159,7 +160,8 @@ impl Header {
     /// `TAIL_ENTRY_BOOT_ID`: whether [`Header::tail_entry_boot_id`] is meaningful. Older journal
     /// files never populated it.
     pub fn has_tail_entry_boot_id(&self) -> bool {
-        self.compatible_flags.contains(CompatibleFlags::TAIL_ENTRY_BOOT_ID)
+        self.compatible_flags
+            .contains(CompatibleFlags::TAIL_ENTRY_BOOT_ID)
     }
 
     /// Which compression codec `OBJECT_COMPRESSED_*` object flags refer to in this file, or
@@ -169,11 +171,20 @@ impl Header {
     /// tie-break, not a claim that such a file is well-formed.
     pub fn compression_codec(&self) -> Option<crate::journal::compress::Codec> {
         use crate::journal::compress::Codec;
-        if self.incompatible_flags.contains(IncompatibleFlags::COMPRESSED_XZ) {
+        if self
+            .incompatible_flags
+            .contains(IncompatibleFlags::COMPRESSED_XZ)
+        {
             Some(Codec::Xz)
-        } else if self.incompatible_flags.contains(IncompatibleFlags::COMPRESSED_LZ4) {
+        } else if self
+            .incompatible_flags
+            .contains(IncompatibleFlags::COMPRESSED_LZ4)
+        {
             Some(Codec::Lz4)
-        } else if self.incompatible_flags.contains(IncompatibleFlags::COMPRESSED_ZSTD) {
+        } else if self
+            .incompatible_flags
+            .contains(IncompatibleFlags::COMPRESSED_ZSTD)
+        {
             Some(Codec::Zstd)
         } else {
             None
@@ -324,7 +335,10 @@ mod tests {
         assert_eq!(header.header_size, 272);
         assert_eq!(header.arena_size, 1000);
         assert_eq!(header.entry_array_offset, 176);
-        assert!(header.head_entry_realtime.is_none(), "no trailing fields present");
+        assert!(
+            header.head_entry_realtime.is_none(),
+            "no trailing fields present"
+        );
     }
 
     #[test]

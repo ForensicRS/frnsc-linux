@@ -32,8 +32,13 @@ use crate::text;
 pub const PARSER_ID: &str = "linux.units";
 
 /// The ForensicArtifacts definitions this parser declares, in the order the issue lists them.
-pub const DEFINITIONS: &[&str] =
-    &["LinuxSystemdServices", "LinuxServices", "LinuxSysVInit", "LinuxLSBInit", "LinuxXinetd"];
+pub const DEFINITIONS: &[&str] = &[
+    "LinuxSystemdServices",
+    "LinuxServices",
+    "LinuxSysVInit",
+    "LinuxLSBInit",
+    "LinuxXinetd",
+];
 
 mod field {
     pub const KIND: &str = "linux.units.kind";
@@ -95,9 +100,18 @@ fn kind_label(kind: Kind) -> &'static str {
     }
 }
 
-fn new_record(host: &str, kind: Kind, source: &SourceHandle, acquisition: Acquisition) -> ForensicData {
+fn new_record(
+    host: &str,
+    kind: Kind,
+    source: &SourceHandle,
+    acquisition: Acquisition,
+) -> ForensicData {
     let provenance = source.mint(acquisition, Recovery::Allocated);
-    ForensicData::new(host, Artifact::Linux(LinuxArtifacts::Service(linux_service(kind))), provenance)
+    ForensicData::new(
+        host,
+        Artifact::Linux(LinuxArtifacts::Service(linux_service(kind))),
+        provenance,
+    )
 }
 
 fn base_fields(data: &mut ForensicData, path: &FPath, definition: &str, kind: Kind) {
@@ -126,7 +140,10 @@ fn systemd_records(
     let (entries, unparsed) = ini::parse(bytes);
     let dropin_target = is_dropin(path);
     let service_name = dropin_target.clone().unwrap_or_else(|| {
-        path.file_name().and_then(|n| n.strip_suffix(".service")).unwrap_or("").to_string()
+        path.file_name()
+            .and_then(|n| n.strip_suffix(".service"))
+            .unwrap_or("")
+            .to_string()
     });
     let mut out = Vec::new();
     for entry in &entries {
@@ -147,7 +164,10 @@ fn systemd_records(
     for bad in unparsed {
         out.push(Err(ForensicError::invalid_format(
             "systemd unit file",
-            format!("line {}: not a [Section] header or key=value line: {:?}", bad.line, bad.text),
+            format!(
+                "line {}: not a [Section] header or key=value line: {:?}",
+                bad.line, bad.text
+            ),
         )
         .with_path(path.to_owned())));
     }
@@ -226,7 +246,10 @@ fn rc_script_record(
 
     let mut service_name = filename.to_string();
     if let Some((action, seq, target)) = parse_rcd_filename(filename) {
-        data.set(field::RC_ACTION, if action == 'S' { "start" } else { "stop" });
+        data.set(
+            field::RC_ACTION,
+            if action == 'S' { "start" } else { "stop" },
+        );
         data.set(field::RC_SEQUENCE, seq as u64);
         service_name = target.to_string();
     }
@@ -238,10 +261,7 @@ fn rc_script_record(
             data.set(field::LSB_HAS_HEADER, true);
             if let Some(provides) = header.get("Provides") {
                 service_name = provides.clone();
-                data.set(
-                    field::LSB_PROVIDES,
-                    text_owned_list(provides),
-                );
+                data.set(field::LSB_PROVIDES, text_owned_list(provides));
             }
             if let Some(v) = header.get("Required-Start") {
                 data.set(field::LSB_REQUIRED_START, text_owned_list(v));
@@ -323,7 +343,11 @@ fn xinetd_records(
                 Some(h) => (Some(h.trim()), true),
                 None => (None, false),
             };
-            let opens_next = !brace_here && lines.get(i + 1).map(|l| l.text().trim() == "{").unwrap_or(false);
+            let opens_next = !brace_here
+                && lines
+                    .get(i + 1)
+                    .map(|l| l.text().trim() == "{")
+                    .unwrap_or(false);
             if brace_here || opens_next {
                 let header_text = header.unwrap_or(trimmed);
                 let tokens: Vec<&str> = header_text.split_whitespace().collect();
@@ -358,7 +382,10 @@ fn xinetd_records(
         } else {
             out.push(Err(ForensicError::invalid_format(
                 "xinetd line",
-                format!("line {}: expected key = value inside a block, got {trimmed:?}", line.number),
+                format!(
+                    "line {}: expected key = value inside a block, got {trimmed:?}",
+                    line.number
+                ),
             )
             .with_path(path.to_owned())));
             i += 1;
@@ -390,8 +417,11 @@ pub struct UnitsParserFactory {
 
 impl Default for UnitsParserFactory {
     fn default() -> Self {
-        let requirements: Vec<Requirement> =
-            DEFINITIONS.iter().copied().map(Requirement::artifact).collect();
+        let requirements: Vec<Requirement> = DEFINITIONS
+            .iter()
+            .copied()
+            .map(Requirement::artifact)
+            .collect();
         Self {
             descriptor: ParserDescriptor::new(
                 PARSER_ID,
@@ -406,7 +436,9 @@ impl Default for UnitsParserFactory {
                 Artifact::Linux(LinuxArtifacts::Service(LinuxService::SystemD)),
                 Artifact::Linux(LinuxArtifacts::Service(LinuxService::SysV)),
                 Artifact::Linux(LinuxArtifacts::Service(LinuxService::InitD)),
-                Artifact::Linux(LinuxArtifacts::Service(LinuxService::Other("xinetd".to_string()))),
+                Artifact::Linux(LinuxArtifacts::Service(LinuxService::Other(
+                    "xinetd".to_string(),
+                ))),
             ])
             .with_requirements(requirements),
         }
@@ -437,7 +469,10 @@ impl ArtifactParserFactory for UnitsParserFactory {
 
     fn open(&self, ctx: &ParseContext<'_>) -> ForensicResult<ParserRun> {
         let fs = ctx.vfs().cloned().ok_or_else(|| {
-            ForensicError::missing_data("FileSystem source required", CompactString::const_new(PARSER_ID))
+            ForensicError::missing_data(
+                "FileSystem source required",
+                CompactString::const_new(PARSER_ID),
+            )
         })?;
         if ctx.sources().catalog().is_none() {
             return Err(ForensicError::missing_data(
@@ -479,7 +514,10 @@ impl ArtifactParserFactory for UnitsParserFactory {
                 }
                 let leaf = file.artifact.as_ref();
                 let Some(kind) = classify(leaf) else {
-                    debug!("{PARSER_ID}: {}: unrecognized leaf definition {leaf}", file.path);
+                    debug!(
+                        "{PARSER_ID}: {}: unrecognized leaf definition {leaf}",
+                        file.path
+                    );
                     continue;
                 };
                 targets.insert(file.path.clone(), (leaf.to_string(), kind));
@@ -490,7 +528,12 @@ impl ArtifactParserFactory for UnitsParserFactory {
             .into_iter()
             .map(|(path, (definition, kind))| {
                 let source = ctx.register_source(SourceKey::Path(path.as_str().to_string()));
-                Target { path, definition, kind, source }
+                Target {
+                    path,
+                    definition,
+                    kind,
+                    source,
+                }
             })
             .collect();
 
@@ -572,10 +615,15 @@ mod tests {
     #[test]
     fn dropin_paths_are_recognized_and_resolve_their_target_unit() {
         assert_eq!(
-            is_dropin(FPath::new("etc/systemd/system/sshd.service.d/override.conf")),
+            is_dropin(FPath::new(
+                "etc/systemd/system/sshd.service.d/override.conf"
+            )),
             Some("sshd.service".to_string())
         );
-        assert_eq!(is_dropin(FPath::new("etc/systemd/system/sshd.service")), None);
+        assert_eq!(
+            is_dropin(FPath::new("etc/systemd/system/sshd.service")),
+            None
+        );
     }
 
     #[test]
@@ -593,7 +641,10 @@ mod tests {
             other => panic!("expected LsbHeader::Present, got {other:?}"),
         };
         assert_eq!(header.get("Provides"), Some(&"apache2".to_string()));
-        assert_eq!(header.get("Required-Start"), Some(&"$local_fs $network".to_string()));
+        assert_eq!(
+            header.get("Required-Start"),
+            Some(&"$local_fs $network".to_string())
+        );
         assert_eq!(header.get("Default-Start"), Some(&"2 3 4 5".to_string()));
     }
 
@@ -607,7 +658,6 @@ mod tests {
         let script = "#!/bin/sh\n### BEGIN INIT INFO\n# Provides:          apache2\necho hi\n";
         assert_eq!(parse_lsb_header(script), LsbHeader::Truncated);
     }
-
 }
 
 #[cfg(test)]
@@ -624,7 +674,10 @@ mod factory_tests {
             name: Cow::Borrowed(name),
             aliases: Cow::Borrowed(&[]),
             doc: Cow::Borrowed(""),
-            sources: Cow::Owned(vec![SourceEntry { source, supported_os: Cow::Borrowed(&[]) }]),
+            sources: Cow::Owned(vec![SourceEntry {
+                source,
+                supported_os: Cow::Borrowed(&[]),
+            }]),
             supported_os: Cow::Borrowed(&[Os::Linux]),
             urls: Cow::Borrowed(&[]),
         }
@@ -633,13 +686,19 @@ mod factory_tests {
     fn file_def(name: &'static str, paths: &'static [Text]) -> ArtifactDefinition {
         definition(
             name,
-            ArtifactSource::File { paths: Cow::Borrowed(paths), separator: Separator::Slash },
+            ArtifactSource::File {
+                paths: Cow::Borrowed(paths),
+                separator: Separator::Slash,
+            },
         )
     }
 
     fn catalog() -> Arc<dyn ArtifactCatalog> {
         let defs = vec![
-            file_def("LinuxSystemdServices", &[Cow::Borrowed("/etc/systemd/system/*.service")]),
+            file_def(
+                "LinuxSystemdServices",
+                &[Cow::Borrowed("/etc/systemd/system/*.service")],
+            ),
             definition(
                 "LinuxServices",
                 ArtifactSource::Group {
@@ -653,12 +712,19 @@ mod factory_tests {
             ),
             file_def(
                 "LinuxSysVInit",
-                &[Cow::Borrowed("/etc/rc.local"), Cow::Borrowed("/etc/rc*.d/*"), Cow::Borrowed("/etc/rc.d/init.d/*")],
+                &[
+                    Cow::Borrowed("/etc/rc.local"),
+                    Cow::Borrowed("/etc/rc*.d/*"),
+                    Cow::Borrowed("/etc/rc.d/init.d/*"),
+                ],
             ),
             file_def("LinuxLSBInit", &[Cow::Borrowed("/etc/init.d/*")]),
             file_def(
                 "LinuxXinetd",
-                &[Cow::Borrowed("/etc/xinetd.conf"), Cow::Borrowed("/etc/xinetd.d/*")],
+                &[
+                    Cow::Borrowed("/etc/xinetd.conf"),
+                    Cow::Borrowed("/etc/xinetd.d/*"),
+                ],
             ),
         ];
         Arc::new(SliceCatalog::new(defs).unwrap())
@@ -702,15 +768,24 @@ mod factory_tests {
 
     #[test]
     fn a_systemd_service_unit_emits_one_record_per_directive() {
-        let bytes = b"[Unit]\nDescription=Example\n\n[Service]\nExecStart=/usr/bin/example\nUser=nobody\n";
-        let vfs = InMemoryVirtualFileSystem::new().with_file("etc/systemd/system/example.service", bytes.to_vec());
+        let bytes =
+            b"[Unit]\nDescription=Example\n\n[Service]\nExecStart=/usr/bin/example\nUser=nobody\n";
+        let vfs = InMemoryVirtualFileSystem::new()
+            .with_file("etc/systemd/system/example.service", bytes.to_vec());
         let items = run(&sources(vfs));
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
         assert!(items.iter().all(|i| i.is_ok()));
         assert_eq!(records.len(), 3);
-        assert!(records.iter().all(|r| r.artifact() == &Artifact::Linux(LinuxArtifacts::Service(LinuxService::SystemD))));
-        assert!(records.iter().all(|r| field(r, SERVICE_NAME) == Some("example")));
-        assert!(records.iter().any(|r| field(r, field::UNIT_KEY) == Some("Service.ExecStart")));
+        assert!(records
+            .iter()
+            .all(|r| r.artifact()
+                == &Artifact::Linux(LinuxArtifacts::Service(LinuxService::SystemD))));
+        assert!(records
+            .iter()
+            .all(|r| field(r, SERVICE_NAME) == Some("example")));
+        assert!(records
+            .iter()
+            .any(|r| field(r, field::UNIT_KEY) == Some("Service.ExecStart")));
     }
 
     #[test]
@@ -721,7 +796,10 @@ mod factory_tests {
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
         assert_eq!(records.len(), 1);
         assert_eq!(field(records[0], SERVICE_NAME), Some("apache2"));
-        assert_eq!(records[0].artifact(), &Artifact::Linux(LinuxArtifacts::Service(LinuxService::InitD)));
+        assert_eq!(
+            records[0].artifact(),
+            &Artifact::Linux(LinuxArtifacts::Service(LinuxService::InitD))
+        );
     }
 
     #[test]
@@ -740,13 +818,17 @@ mod factory_tests {
 
     #[test]
     fn a_sysv_rcd_symlink_decodes_start_stop_sequence_from_its_filename() {
-        let vfs = InMemoryVirtualFileSystem::new().with_file("etc/rc2.d/S20apache2", b"#!/bin/sh\nexit 0\n".to_vec());
+        let vfs = InMemoryVirtualFileSystem::new()
+            .with_file("etc/rc2.d/S20apache2", b"#!/bin/sh\nexit 0\n".to_vec());
         let items = run(&sources(vfs));
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
         assert_eq!(records.len(), 1);
         assert_eq!(field(records[0], field::RC_ACTION), Some("start"));
         assert_eq!(records[0].field_as_u64(field::RC_SEQUENCE), Some(20));
-        assert_eq!(records[0].artifact(), &Artifact::Linux(LinuxArtifacts::Service(LinuxService::SysV)));
+        assert_eq!(
+            records[0].artifact(),
+            &Artifact::Linux(LinuxArtifacts::Service(LinuxService::SysV))
+        );
     }
 
     #[test]
@@ -757,12 +839,17 @@ mod factory_tests {
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
         assert!(items.iter().all(|i| i.is_ok()));
         assert_eq!(records.len(), 2);
-        assert!(records.iter().all(|r| field(r, SERVICE_NAME) == Some("ssh")));
-        assert!(records.iter().any(|r| field(r, field::XINETD_KEY) == Some("server")
-            && field(r, field::XINETD_VALUE) == Some("/usr/sbin/sshd")));
         assert!(records
             .iter()
-            .all(|r| r.artifact() == &Artifact::Linux(LinuxArtifacts::Service(LinuxService::Other("xinetd".to_string())))));
+            .all(|r| field(r, SERVICE_NAME) == Some("ssh")));
+        assert!(records
+            .iter()
+            .any(|r| field(r, field::XINETD_KEY) == Some("server")
+                && field(r, field::XINETD_VALUE) == Some("/usr/sbin/sshd")));
+        assert!(records.iter().all(|r| r.artifact()
+            == &Artifact::Linux(LinuxArtifacts::Service(LinuxService::Other(
+                "xinetd".to_string()
+            )))));
     }
 
     #[test]
@@ -775,7 +862,8 @@ mod factory_tests {
 
     #[test]
     fn a_file_reached_only_through_the_group_definition_is_still_classified_precisely() {
-        let vfs = InMemoryVirtualFileSystem::new().with_file("etc/init.d/cron", b"#!/bin/sh\nexit 0\n".to_vec());
+        let vfs = InMemoryVirtualFileSystem::new()
+            .with_file("etc/init.d/cron", b"#!/bin/sh\nexit 0\n".to_vec());
         let items = run(&sources(vfs));
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
         assert_eq!(records.len(), 1);

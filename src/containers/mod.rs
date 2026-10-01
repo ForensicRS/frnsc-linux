@@ -147,8 +147,9 @@ fn read_file(fs: &dyn FileSystem, path: &FPath) -> ForensicResult<Vec<u8>> {
         .open(path)
         .map_err(|e| e.with_path(FPathBuf::from(path.as_str())))?;
     let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)
-        .map_err(|e| ForensicError::io_error_with_source(e, format!("{PARSER_ID}: reading {path}")))?;
+    file.read_to_end(&mut bytes).map_err(|e| {
+        ForensicError::io_error_with_source(e, format!("{PARSER_ID}: reading {path}"))
+    })?;
     Ok(bytes)
 }
 
@@ -272,7 +273,8 @@ fn line_record(
 }
 
 fn decode_lossy(bytes: &[u8]) -> String {
-    String::from_utf8(bytes.to_vec()).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
+    String::from_utf8(bytes.to_vec())
+        .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
 }
 
 #[derive(Default)]
@@ -300,7 +302,8 @@ fn process_docker_container(
             Ok(bytes) => match docker::parse_config_v2(&bytes) {
                 Ok(parsed) => {
                     identity = parsed;
-                    config_source_info = Some((DOCKER_CONFIG_DEFINITION, path.clone(), source.clone()));
+                    config_source_info =
+                        Some((DOCKER_CONFIG_DEFINITION, path.clone(), source.clone()));
                 }
                 Err(e) => {
                     if out.emit(Err(e.with_path(path.clone()))).is_stop() {
@@ -321,7 +324,8 @@ fn process_docker_container(
                 Ok(()) => {
                     hostconfig_path_str = Some(path.as_str().to_string());
                     if config_source_info.is_none() {
-                        config_source_info = Some((DOCKER_HOSTCONFIG_DEFINITION, path.clone(), source.clone()));
+                        config_source_info =
+                            Some((DOCKER_HOSTCONFIG_DEFINITION, path.clone(), source.clone()));
                     }
                 }
                 Err(e) => {
@@ -341,7 +345,11 @@ fn process_docker_container(
     let path_derived_id = dir.file_name().map(str::to_string);
     let mut line_identity = LineIdentity::default();
     if let Some(id) = identity.id.clone().or_else(|| path_derived_id.clone()) {
-        line_identity.container_id_source = Some(if identity.id.is_some() { "config.v2.json" } else { "path" });
+        line_identity.container_id_source = Some(if identity.id.is_some() {
+            "config.v2.json"
+        } else {
+            "path"
+        });
         line_identity.container_id = Some(id);
     }
     if let Some(name) = identity.name.clone() {
@@ -410,9 +418,22 @@ fn process_docker_container(
                     let is_final = docker::is_final_fragment(&rec.message);
                     let stream = rec.stream.clone();
                     let buf = streams.entry(stream.clone()).or_default();
-                    if let Some(timed) = buf.push(rec.message.into_bytes(), is_final, &rec.time_raw, rec.timestamp) {
+                    if let Some(timed) = buf.push(
+                        rec.message.into_bytes(),
+                        is_final,
+                        &rec.time_raw,
+                        rec.timestamp,
+                    ) {
                         let message = decode_lossy(&timed.line.bytes);
-                        let data = line_record(&ctx, "docker", &stream, &timed, message, None, &line_identity);
+                        let data = line_record(
+                            &ctx,
+                            "docker",
+                            &stream,
+                            &timed,
+                            message,
+                            None,
+                            &line_identity,
+                        );
                         if out.emit(Ok(data)).is_stop() {
                             return true;
                         }
@@ -428,7 +449,15 @@ fn process_docker_container(
         for (stream, mut buf) in streams {
             if let Some(timed) = buf.flush_incomplete() {
                 let message = decode_lossy(&timed.line.bytes);
-                let data = line_record(&ctx, "docker", &stream, &timed, message, None, &line_identity);
+                let data = line_record(
+                    &ctx,
+                    "docker",
+                    &stream,
+                    &timed,
+                    message,
+                    None,
+                    &line_identity,
+                );
                 if out.emit(Ok(data)).is_stop() {
                     return true;
                 }
@@ -460,7 +489,10 @@ fn process_cri_log_file(
     let mut line_identity = LineIdentity::default();
     if let Some(id) = &path_identity {
         let key = (id.namespace.clone(), id.pod.clone(), id.container.clone());
-        dedup_index.entry(key.clone()).or_default().push((path.clone(), content_fingerprint(&bytes)));
+        dedup_index
+            .entry(key.clone())
+            .or_default()
+            .push((path.clone(), content_fingerprint(&bytes)));
 
         line_identity.namespace = Some(id.namespace.clone());
         line_identity.namespace_source = Some("path");
@@ -489,7 +521,14 @@ fn process_cri_log_file(
         acquisition: run.acquisition,
     };
 
-    emit_cri_lines(&ctx, &bytes, run.cancellation, log_index.as_deref(), &line_identity, out)
+    emit_cri_lines(
+        &ctx,
+        &bytes,
+        run.cancellation,
+        log_index.as_deref(),
+        &line_identity,
+        out,
+    )
 }
 
 /// Shared by [`process_cri_log_file`] and the Kubernetes symlink path: both formats are CRI text
@@ -520,7 +559,10 @@ fn emit_cri_lines(
                 }
             }
             Err(e) => {
-                if out.emit(Err(e.with_path(FPathBuf::from(ctx.path)))).is_stop() {
+                if out
+                    .emit(Err(e.with_path(FPathBuf::from(ctx.path))))
+                    .is_stop()
+                {
                     return true;
                 }
             }
@@ -546,7 +588,15 @@ fn emit_one_cri_line(
 ) -> bool {
     let message = String::from_utf8_lossy(&timed.line.bytes).into_owned();
     let raw_hex = hex_encode(&timed.line.bytes);
-    let mut data = line_record(ctx, "cri", stream, timed, message, Some(raw_hex), line_identity);
+    let mut data = line_record(
+        ctx,
+        "cri",
+        stream,
+        timed,
+        message,
+        Some(raw_hex),
+        line_identity,
+    );
     if let Some(idx) = log_index {
         data.set(field::LOG_INDEX, idx.to_string());
     }
@@ -578,7 +628,11 @@ fn process_kubernetes_symlink(
         Err(_) => return false,
     };
 
-    let key = (name_identity.namespace.clone(), name_identity.pod.clone(), name_identity.container.clone());
+    let key = (
+        name_identity.namespace.clone(),
+        name_identity.pod.clone(),
+        name_identity.container.clone(),
+    );
     let fingerprint = content_fingerprint(&bytes);
     if let Some(candidates) = dedup_index.get(&key) {
         if let Some((dup_path, _)) = candidates.iter().find(|(_, fp)| *fp == fingerprint) {
@@ -626,7 +680,11 @@ pub struct ContainersParserFactory {
 
 impl Default for ContainersParserFactory {
     fn default() -> Self {
-        let requirements: Vec<Requirement> = DEFINITIONS.iter().copied().map(Requirement::artifact).collect();
+        let requirements: Vec<Requirement> = DEFINITIONS
+            .iter()
+            .copied()
+            .map(Requirement::artifact)
+            .collect();
         Self {
             descriptor: ParserDescriptor::new(
                 PARSER_ID,
@@ -663,7 +721,10 @@ impl ArtifactParserFactory for ContainersParserFactory {
 
     fn open(&self, ctx: &ParseContext<'_>) -> ForensicResult<ParserRun> {
         let fs = ctx.vfs().cloned().ok_or_else(|| {
-            ForensicError::missing_data("FileSystem source required", CompactString::const_new(PARSER_ID))
+            ForensicError::missing_data(
+                "FileSystem source required",
+                CompactString::const_new(PARSER_ID),
+            )
         })?;
         if ctx.sources().catalog().is_none() {
             return Err(ForensicError::missing_data(
@@ -693,7 +754,10 @@ impl ArtifactParserFactory for ContainersParserFactory {
             head.extend(resolution.unresolved.into_iter().map(|u| {
                 Err(ForensicError::other(
                     "catalog",
-                    format!("{definition}: source {:?} was not searched: {}", u.source, u.reason),
+                    format!(
+                        "{definition}: source {:?} was not searched: {}",
+                        u.source, u.reason
+                    ),
                 ))
             }));
             for note in &resolution.notes {
@@ -706,15 +770,21 @@ impl ArtifactParserFactory for ContainersParserFactory {
                 let source = ctx.register_source(SourceKey::Path(file.path.as_str().to_string()));
                 if definition == DOCKER_CONFIG_DEFINITION {
                     if let Some(dir) = file.path.as_path().parent().map(FPathBuf::from) {
-                        docker_groups.entry(dir).or_default().config_file = Some((file.path, source));
+                        docker_groups.entry(dir).or_default().config_file =
+                            Some((file.path, source));
                     }
                 } else if definition == DOCKER_HOSTCONFIG_DEFINITION {
                     if let Some(dir) = file.path.as_path().parent().map(FPathBuf::from) {
-                        docker_groups.entry(dir).or_default().hostconfig_file = Some((file.path, source));
+                        docker_groups.entry(dir).or_default().hostconfig_file =
+                            Some((file.path, source));
                     }
                 } else if definition == DOCKER_LOG_DEFINITION {
                     if let Some(dir) = file.path.as_path().parent().map(FPathBuf::from) {
-                        docker_groups.entry(dir).or_default().log_files.push((file.path, source));
+                        docker_groups
+                            .entry(dir)
+                            .or_default()
+                            .log_files
+                            .push((file.path, source));
                     }
                 } else if definition == CRI_LOG_DEFINITION {
                     cri_entries.push((file.path, source));
@@ -725,7 +795,12 @@ impl ArtifactParserFactory for ContainersParserFactory {
         }
 
         Ok(ParserRun::push(move |out| {
-            let run = RunCtx { host: host.as_str(), fs: fs.as_ref(), acquisition, cancellation: &cancellation };
+            let run = RunCtx {
+                host: host.as_str(),
+                fs: fs.as_ref(),
+                acquisition,
+                cancellation: &cancellation,
+            };
 
             for item in head {
                 if out.emit(item).is_stop() {
@@ -797,7 +872,10 @@ mod factory_tests {
             aliases: Cow::Borrowed(&[]),
             doc: Cow::Borrowed(""),
             sources: Cow::Owned(vec![SourceEntry {
-                source: ArtifactSource::File { paths: Cow::Borrowed(paths), separator: Separator::Slash },
+                source: ArtifactSource::File {
+                    paths: Cow::Borrowed(paths),
+                    separator: Separator::Slash,
+                },
                 supported_os: Cow::Borrowed(&[]),
             }]),
             supported_os: Cow::Borrowed(&[Os::Linux]),
@@ -807,17 +885,36 @@ mod factory_tests {
 
     fn catalog() -> Arc<dyn ArtifactCatalog> {
         let defs = vec![
-            definition(DOCKER_CONFIG_DEFINITION, &[Cow::Borrowed("/var/lib/docker/containers/*/config.v2.json")]),
-            definition(DOCKER_HOSTCONFIG_DEFINITION, &[Cow::Borrowed("/var/lib/docker/containers/*/hostconfig.json")]),
-            definition(DOCKER_LOG_DEFINITION, &[Cow::Borrowed("/var/lib/docker/containers/*/*-json.log*")]),
-            definition(KUBERNETES_SYMLINK_DEFINITION, &[Cow::Borrowed("/var/log/containers/*.log")]),
-            definition(CRI_LOG_DEFINITION, &[Cow::Borrowed("/var/log/pods/*/*/*.log")]),
+            definition(
+                DOCKER_CONFIG_DEFINITION,
+                &[Cow::Borrowed("/var/lib/docker/containers/*/config.v2.json")],
+            ),
+            definition(
+                DOCKER_HOSTCONFIG_DEFINITION,
+                &[Cow::Borrowed(
+                    "/var/lib/docker/containers/*/hostconfig.json",
+                )],
+            ),
+            definition(
+                DOCKER_LOG_DEFINITION,
+                &[Cow::Borrowed("/var/lib/docker/containers/*/*-json.log*")],
+            ),
+            definition(
+                KUBERNETES_SYMLINK_DEFINITION,
+                &[Cow::Borrowed("/var/log/containers/*.log")],
+            ),
+            definition(
+                CRI_LOG_DEFINITION,
+                &[Cow::Borrowed("/var/log/pods/*/*/*.log")],
+            ),
         ];
         Arc::new(SliceCatalog::new(defs).unwrap())
     }
 
     fn sources(vfs: InMemoryVirtualFileSystem, with_catalog: bool) -> TriageSources {
-        let mut builder = TriageSources::builder().vfs(Arc::new(vfs)).acquisition(Acquisition::ImageRead);
+        let mut builder = TriageSources::builder()
+            .vfs(Arc::new(vfs))
+            .acquisition(Acquisition::ImageRead);
         if with_catalog {
             builder = builder.catalog(catalog());
         }
@@ -848,17 +945,30 @@ mod factory_tests {
             "{\"log\":\"lo w\",\"stream\":\"stdout\",\"time\":\"2023-11-15T12:34:56.100000000Z\"}\n",
             "{\"log\":\"orld\\n\",\"stream\":\"stdout\",\"time\":\"2023-11-15T12:34:56.200000000Z\"}\n",
         );
-        let config_v2 = r#"{"ID":"abc123","Name":"/my-container","Config":{"Image":"nginx:latest"}}"#;
+        let config_v2 =
+            r#"{"ID":"abc123","Name":"/my-container","Config":{"Image":"nginx:latest"}}"#;
         let hostconfig = r#"{"Binds":["/host:/container:ro"]}"#;
         let cri_log = "2023-11-15T12:00:00.000000000Z stdout P partial-\n\
                         2023-11-15T12:00:00.100000000Z stdout F line\n";
         let standalone_log = "2023-11-15T13:00:00.000000000Z stdout F standalone\n";
 
         InMemoryVirtualFileSystem::new()
-            .with_file("var/lib/docker/containers/abc123/abc123-json.log", docker_log.as_bytes().to_vec())
-            .with_file("var/lib/docker/containers/abc123/config.v2.json", config_v2.as_bytes().to_vec())
-            .with_file("var/lib/docker/containers/abc123/hostconfig.json", hostconfig.as_bytes().to_vec())
-            .with_file("var/log/pods/default_myapp-xyz_uid1/myapp/0.log", cri_log.as_bytes().to_vec())
+            .with_file(
+                "var/lib/docker/containers/abc123/abc123-json.log",
+                docker_log.as_bytes().to_vec(),
+            )
+            .with_file(
+                "var/lib/docker/containers/abc123/config.v2.json",
+                config_v2.as_bytes().to_vec(),
+            )
+            .with_file(
+                "var/lib/docker/containers/abc123/hostconfig.json",
+                hostconfig.as_bytes().to_vec(),
+            )
+            .with_file(
+                "var/log/pods/default_myapp-xyz_uid1/myapp/0.log",
+                cri_log.as_bytes().to_vec(),
+            )
             .with_file(
                 "var/log/containers/myapp-xyz_default_myapp-deadbeef.log",
                 cri_log.as_bytes().to_vec(),
@@ -920,25 +1030,40 @@ mod factory_tests {
         assert_eq!(docker_line.field_as_u64(field::REASSEMBLED), Some(1));
         assert_eq!(docker_line.field_as_u64(field::TRUNCATED), Some(0));
         assert_eq!(field(docker_line, field::CONTAINER_ID), Some("abc123"));
-        assert_eq!(field(docker_line, field::CONTAINER_ID_SOURCE), Some("config.v2.json"));
-        assert_eq!(field(docker_line, field::CONTAINER_NAME), Some("my-container"));
+        assert_eq!(
+            field(docker_line, field::CONTAINER_ID_SOURCE),
+            Some("config.v2.json")
+        );
+        assert_eq!(
+            field(docker_line, field::CONTAINER_NAME),
+            Some("my-container")
+        );
         assert_eq!(field(docker_line, field::IMAGE), Some("nginx:latest"));
         assert!(docker_line.field_as_date(TIMESTAMP).is_some());
 
         let context = items
             .iter()
             .filter_map(|i| i.as_ref().ok())
-            .find(|d| d.artifact() == &Artifact::Linux(LinuxArtifacts::Other("container-config".to_string())))
+            .find(|d| {
+                d.artifact()
+                    == &Artifact::Linux(LinuxArtifacts::Other("container-config".to_string()))
+            })
             .expect("one docker context record");
         assert_eq!(field(context, field::CONTAINER_ID), Some("abc123"));
         assert_eq!(field(context, field::CONTAINER_NAME), Some("my-container"));
         assert_eq!(field(context, field::IMAGE), Some("nginx:latest"));
-        assert_eq!(field(context, field::MOUNTS_RAW), Some("/host:/container:ro"));
-        assert!(field(context, field::HOSTCONFIG_PATH).unwrap().ends_with("hostconfig.json"));
+        assert_eq!(
+            field(context, field::MOUNTS_RAW),
+            Some("/host:/container:ro")
+        );
+        assert!(field(context, field::HOSTCONFIG_PATH)
+            .unwrap()
+            .ends_with("hostconfig.json"));
     }
 
     #[test]
-    fn cri_log_is_enriched_with_the_symlink_derived_container_id_and_the_duplicate_symlink_is_not_double_emitted() {
+    fn cri_log_is_enriched_with_the_symlink_derived_container_id_and_the_duplicate_symlink_is_not_double_emitted(
+    ) {
         let items = run(&sources(base_vfs(), true));
 
         let cri_lines: Vec<&ForensicData> = items
@@ -946,7 +1071,11 @@ mod factory_tests {
             .filter_map(|i| i.as_ref().ok())
             .filter(|d| field(d, field::POD_NAME) == Some("myapp-xyz"))
             .collect();
-        assert_eq!(cri_lines.len(), 1, "the duplicate symlink copy must not be re-emitted: {cri_lines:?}");
+        assert_eq!(
+            cri_lines.len(),
+            1,
+            "the duplicate symlink copy must not be re-emitted: {cri_lines:?}"
+        );
         let line = cri_lines[0];
         assert_eq!(field(line, field::MESSAGE), Some("partial-line"));
         assert_eq!(line.field_as_u64(field::FRAGMENT_COUNT), Some(2));
@@ -960,14 +1089,19 @@ mod factory_tests {
             Some("deadbeef"),
             "the pods-directory path has no container ID of its own; it must come from the symlink name"
         );
-        assert_eq!(field(line, field::CONTAINER_ID_SOURCE), Some("kubernetes-symlink-name"));
+        assert_eq!(
+            field(line, field::CONTAINER_ID_SOURCE),
+            Some("kubernetes-symlink-name")
+        );
 
         let duplicate_note = items
             .iter()
             .filter_map(|i| i.as_ref().err())
             .find(|e| e.to_string().contains("duplicates"))
             .expect("the duplication must be reported, not silently swallowed");
-        assert!(duplicate_note.to_string().contains("myapp-xyz_default_myapp-deadbeef.log"));
+        assert!(duplicate_note
+            .to_string()
+            .contains("myapp-xyz_default_myapp-deadbeef.log"));
     }
 
     #[test]
@@ -984,7 +1118,13 @@ mod factory_tests {
         assert_eq!(field(line, field::POD_NAME), Some("other-pod"));
         assert_eq!(field(line, field::NAMESPACE), Some("default"));
         assert_eq!(field(line, field::CONTAINER_ID), Some("cafebabe"));
-        assert_eq!(field(line, field::NAMESPACE_SOURCE), Some("kubernetes-symlink-name"));
-        assert_eq!(field(line, ARTIFACT_DEFINITION), Some(KUBERNETES_SYMLINK_DEFINITION));
+        assert_eq!(
+            field(line, field::NAMESPACE_SOURCE),
+            Some("kubernetes-symlink-name")
+        );
+        assert_eq!(
+            field(line, ARTIFACT_DEFINITION),
+            Some(KUBERNETES_SYMLINK_DEFINITION)
+        );
     }
 }

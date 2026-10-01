@@ -66,16 +66,29 @@ mod field {
     pub const ALLOW_DENY_KIND: &str = "linux.schedule.allow_deny.kind";
 }
 
-const CRON_SPECIALS: &[&str] =
-    &["@reboot", "@yearly", "@annually", "@monthly", "@weekly", "@daily", "@midnight", "@hourly"];
+const CRON_SPECIALS: &[&str] = &[
+    "@reboot",
+    "@yearly",
+    "@annually",
+    "@monthly",
+    "@weekly",
+    "@daily",
+    "@midnight",
+    "@hourly",
+];
 
 /// `NAME=VALUE` crontab/anacrontab environment lines (`MAILTO=root`, `PATH=...`), never a
 /// scheduling row — recognized so they are skipped rather than reported malformed.
 fn is_env_assignment(trimmed: &str) -> bool {
-    let Some(eq_idx) = trimmed.find('=') else { return false };
+    let Some(eq_idx) = trimmed.find('=') else {
+        return false;
+    };
     let name = &trimmed[..eq_idx];
     !name.is_empty()
-        && name.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && name
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
         && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
@@ -154,7 +167,12 @@ fn cron_artifact_kind(kind: Kind) -> &'static str {
     }
 }
 
-fn new_record(host: &str, kind: Kind, source: &SourceHandle, acquisition: Acquisition) -> ForensicData {
+fn new_record(
+    host: &str,
+    kind: Kind,
+    source: &SourceHandle,
+    acquisition: Acquisition,
+) -> ForensicData {
     let provenance = source.mint(acquisition, Recovery::Allocated);
     ForensicData::new(
         host,
@@ -202,7 +220,11 @@ fn crontab_records(
                 }
                 (None, rest.join(" "))
             };
-            let kind = if system { Kind::SystemCrontab } else { Kind::UserCrontab };
+            let kind = if system {
+                Kind::SystemCrontab
+            } else {
+                Kind::UserCrontab
+            };
             let mut data = new_record(host, kind, source, acquisition);
             base_fields(&mut data, path, definition, "crontab");
             data.set(field::LINE_NUMBER, line.number as u64);
@@ -210,7 +232,10 @@ fn crontab_records(
             data.set(field::SCHEDULE_SPEC, spec);
             data.set(field::IS_REBOOT, is_reboot);
             data.set(field::COMMAND, command);
-            data.set(field::LOCATION, if system { "system" } else { "user_spool" });
+            data.set(
+                field::LOCATION,
+                if system { "system" } else { "user_spool" },
+            );
             if let Some(user) = &user_field {
                 data.set(field::CRON_USER_FIELD, user.clone());
                 data.set(USER_NAME, user.clone());
@@ -240,7 +265,9 @@ fn at_job_record(
     let mut uid = None;
     let mut gid = None;
     for line in text.lines() {
-        let Some(rest) = line.trim().strip_prefix("# atrun uid=") else { continue };
+        let Some(rest) = line.trim().strip_prefix("# atrun uid=") else {
+            continue;
+        };
         let mut parts = rest.split_whitespace();
         uid = parts.next().and_then(|s| s.parse::<u64>().ok());
         gid = parts
@@ -313,7 +340,11 @@ fn anacron_periodic_script_record(
 ) -> ForensicData {
     let mut data = new_record(host, Kind::AnacronPeriodicScript, source, acquisition);
     base_fields(&mut data, path, definition, "anacron_periodic_script");
-    if let Some(period) = path.parent().and_then(|p| p.file_name()).and_then(period_from_cron_dir_name) {
+    if let Some(period) = path
+        .parent()
+        .and_then(|p| p.file_name())
+        .and_then(period_from_cron_dir_name)
+    {
         data.set(field::ANACRON_PERIOD, period);
     }
     data.set(field::COMMAND, path.as_str().to_string());
@@ -335,12 +366,18 @@ fn anacron_timestamp_record(
     }
     // Not decoded into a date: anacron's stamp-file encoding is implementation-specific, and
     // guessing would violate "never invent data". The raw content is kept verbatim instead.
-    data.set(field::ANACRON_TIMESTAMP_RAW, String::from_utf8_lossy(bytes).trim().to_string());
+    data.set(
+        field::ANACRON_TIMESTAMP_RAW,
+        String::from_utf8_lossy(bytes).trim().to_string(),
+    );
     data
 }
 
 fn timer_target_service(path: &FPath, entries: &[ini::Entry]) -> (String, &'static str) {
-    if let Some(explicit) = entries.iter().find(|e| e.section == "Timer" && e.key == "Unit") {
+    if let Some(explicit) = entries
+        .iter()
+        .find(|e| e.section == "Timer" && e.key == "Unit")
+    {
         return (explicit.value.clone(), "explicit");
     }
     let default = path
@@ -377,7 +414,10 @@ fn systemd_timer_records(
     for bad in unparsed {
         out.push(Err(ForensicError::invalid_format(
             "systemd timer unit",
-            format!("line {}: not a [Section] header or key=value line: {:?}", bad.line, bad.text),
+            format!(
+                "line {}: not a [Section] header or key=value line: {:?}",
+                bad.line, bad.text
+            ),
         )
         .with_path(path.to_owned())));
     }
@@ -432,8 +472,11 @@ pub struct ScheduleParserFactory {
 
 impl Default for ScheduleParserFactory {
     fn default() -> Self {
-        let requirements: Vec<Requirement> =
-            DEFINITIONS.iter().copied().map(Requirement::artifact).collect();
+        let requirements: Vec<Requirement> = DEFINITIONS
+            .iter()
+            .copied()
+            .map(Requirement::artifact)
+            .collect();
         Self {
             descriptor: ParserDescriptor::new(
                 PARSER_ID,
@@ -480,7 +523,10 @@ impl ArtifactParserFactory for ScheduleParserFactory {
 
     fn open(&self, ctx: &ParseContext<'_>) -> ForensicResult<ParserRun> {
         let fs = ctx.vfs().cloned().ok_or_else(|| {
-            ForensicError::missing_data("FileSystem source required", CompactString::const_new(PARSER_ID))
+            ForensicError::missing_data(
+                "FileSystem source required",
+                CompactString::const_new(PARSER_ID),
+            )
         })?;
         if ctx.sources().catalog().is_none() {
             return Err(ForensicError::missing_data(
@@ -522,7 +568,10 @@ impl ArtifactParserFactory for ScheduleParserFactory {
                 }
                 let leaf = file.artifact.as_ref();
                 let Some(kind) = classify(leaf, file.path.as_path()) else {
-                    debug!("{PARSER_ID}: {}: unrecognized leaf definition {leaf}", file.path);
+                    debug!(
+                        "{PARSER_ID}: {}: unrecognized leaf definition {leaf}",
+                        file.path
+                    );
                     continue;
                 };
                 targets.insert(file.path.clone(), (leaf.to_string(), kind));
@@ -533,7 +582,12 @@ impl ArtifactParserFactory for ScheduleParserFactory {
             .into_iter()
             .map(|(path, (definition, kind))| {
                 let source = ctx.register_source(SourceKey::Path(path.as_str().to_string()));
-                Target { path, definition, kind, source }
+                Target {
+                    path,
+                    definition,
+                    kind,
+                    source,
+                }
             })
             .collect();
 
@@ -684,8 +738,14 @@ mod tests {
             classify("LinuxCronTabs", FPath::new("var/spool/cron/crontabs/alice")),
             Some(Kind::UserCrontab)
         );
-        assert_eq!(classify("LinuxCronTabs", FPath::new("etc/crontab")), Some(Kind::SystemCrontab));
-        assert_eq!(classify("AnacronFiles", FPath::new("etc/anacrontab")), Some(Kind::AnacronTabEntry));
+        assert_eq!(
+            classify("LinuxCronTabs", FPath::new("etc/crontab")),
+            Some(Kind::SystemCrontab)
+        );
+        assert_eq!(
+            classify("AnacronFiles", FPath::new("etc/anacrontab")),
+            Some(Kind::AnacronTabEntry)
+        );
         assert_eq!(
             classify("AnacronFiles", FPath::new("var/spool/anacron/cron.daily")),
             Some(Kind::AnacronTimestamp)
@@ -694,7 +754,10 @@ mod tests {
             classify("AnacronFiles", FPath::new("etc/cron.daily/logrotate")),
             Some(Kind::AnacronPeriodicScript)
         );
-        assert_eq!(classify("LinuxScheduleFiles", FPath::new("etc/crontab")), None);
+        assert_eq!(
+            classify("LinuxScheduleFiles", FPath::new("etc/crontab")),
+            None
+        );
     }
 }
 
@@ -712,7 +775,10 @@ mod factory_tests {
             name: Cow::Borrowed(name),
             aliases: Cow::Borrowed(&[]),
             doc: Cow::Borrowed(""),
-            sources: Cow::Owned(vec![SourceEntry { source, supported_os: Cow::Borrowed(&[]) }]),
+            sources: Cow::Owned(vec![SourceEntry {
+                source,
+                supported_os: Cow::Borrowed(&[]),
+            }]),
             supported_os: Cow::Borrowed(&[Os::Linux]),
             urls: Cow::Borrowed(&[]),
         }
@@ -721,7 +787,10 @@ mod factory_tests {
     fn file_def(name: &'static str, paths: &'static [Text]) -> ArtifactDefinition {
         definition(
             name,
-            ArtifactSource::File { paths: Cow::Borrowed(paths), separator: Separator::Slash },
+            ArtifactSource::File {
+                paths: Cow::Borrowed(paths),
+                separator: Separator::Slash,
+            },
         )
     }
 
@@ -729,7 +798,11 @@ mod factory_tests {
         let defs = vec![
             file_def(
                 "LinuxCronTabs",
-                &[Cow::Borrowed("/etc/crontab"), Cow::Borrowed("/etc/cron.d/*"), Cow::Borrowed("/var/spool/cron/**")],
+                &[
+                    Cow::Borrowed("/etc/crontab"),
+                    Cow::Borrowed("/etc/cron.d/*"),
+                    Cow::Borrowed("/var/spool/cron/**"),
+                ],
             ),
             file_def("LinuxAtJobs", &[Cow::Borrowed("/var/spool/at/*")]),
             definition(
@@ -750,7 +823,10 @@ mod factory_tests {
                     Cow::Borrowed("/var/spool/anacron/cron.daily"),
                 ],
             ),
-            file_def("LinuxSystemdTimers", &[Cow::Borrowed("/etc/systemd/system/*.timer")]),
+            file_def(
+                "LinuxSystemdTimers",
+                &[Cow::Borrowed("/etc/systemd/system/*.timer")],
+            ),
             file_def(
                 "CronAtAllowDenyFiles",
                 &[
@@ -802,26 +878,36 @@ mod factory_tests {
 
     #[test]
     fn a_system_crontab_row_carries_the_user_field_and_reboot_flag() {
-        let vfs = InMemoryVirtualFileSystem::new()
-            .with_file("etc/crontab", b"@reboot root /usr/local/bin/startup.sh\n".to_vec());
+        let vfs = InMemoryVirtualFileSystem::new().with_file(
+            "etc/crontab",
+            b"@reboot root /usr/local/bin/startup.sh\n".to_vec(),
+        );
         let items = run(&sources(vfs));
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
         assert!(
             items.iter().all(|i| i.is_ok()),
             "unexpected errors: {:?}",
-            items.iter().filter_map(|i| i.as_ref().err()).collect::<Vec<_>>()
+            items
+                .iter()
+                .filter_map(|i| i.as_ref().err())
+                .collect::<Vec<_>>()
         );
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].field_as_u64(field::IS_REBOOT), Some(1)); // bool fields are U64(0|1)
         assert_eq!(field(records[0], USER_NAME), Some("root"));
         assert_eq!(field(records[0], field::LOCATION), Some("system"));
-        assert_eq!(records[0].artifact(), &Artifact::Linux(LinuxArtifacts::Cron("crontab".to_string())));
+        assert_eq!(
+            records[0].artifact(),
+            &Artifact::Linux(LinuxArtifacts::Cron("crontab".to_string()))
+        );
     }
 
     #[test]
     fn a_user_spool_crontab_has_no_user_field_but_derives_user_from_the_filename() {
-        let vfs = InMemoryVirtualFileSystem::new()
-            .with_file("var/spool/cron/crontabs/alice", b"*/5 * * * * /home/alice/poll.sh\n".to_vec());
+        let vfs = InMemoryVirtualFileSystem::new().with_file(
+            "var/spool/cron/crontabs/alice",
+            b"*/5 * * * * /home/alice/poll.sh\n".to_vec(),
+        );
         let items = run(&sources(vfs));
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
         assert_eq!(records.len(), 1);
@@ -843,7 +929,8 @@ mod factory_tests {
 
     #[test]
     fn a_malformed_crontab_row_is_an_err_item() {
-        let vfs = InMemoryVirtualFileSystem::new().with_file("etc/crontab", b"not a valid cron line\n".to_vec());
+        let vfs = InMemoryVirtualFileSystem::new()
+            .with_file("etc/crontab", b"not a valid cron line\n".to_vec());
         let items = run(&sources(vfs));
         assert_eq!(items.len(), 1);
         assert!(items[0].is_err());
@@ -851,20 +938,26 @@ mod factory_tests {
 
     #[test]
     fn an_at_job_captures_uid_gid_and_the_full_script() {
-        let script = b"#!/bin/sh\n# atrun uid=1000 gid=1000\numask 22\ncd /home/alice || exit 1\necho hi\n";
-        let vfs = InMemoryVirtualFileSystem::new().with_file("var/spool/at/a0001a", script.to_vec());
+        let script =
+            b"#!/bin/sh\n# atrun uid=1000 gid=1000\numask 22\ncd /home/alice || exit 1\necho hi\n";
+        let vfs =
+            InMemoryVirtualFileSystem::new().with_file("var/spool/at/a0001a", script.to_vec());
         let items = run(&sources(vfs));
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].field_as_u64(field::AT_UID), Some(1000));
         assert_eq!(records[0].field_as_u64(field::AT_GID), Some(1000));
-        assert!(field(records[0], field::AT_SCRIPT).unwrap().contains("echo hi"));
+        assert!(field(records[0], field::AT_SCRIPT)
+            .unwrap()
+            .contains("echo hi"));
     }
 
     #[test]
     fn a_periodic_cron_script_is_one_record_with_its_period() {
-        let vfs =
-            InMemoryVirtualFileSystem::new().with_file("etc/cron.daily/logrotate", b"#!/bin/sh\nlogrotate\n".to_vec());
+        let vfs = InMemoryVirtualFileSystem::new().with_file(
+            "etc/cron.daily/logrotate",
+            b"#!/bin/sh\nlogrotate\n".to_vec(),
+        );
         let items = run(&sources(vfs));
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
         assert_eq!(records.len(), 1);
@@ -878,24 +971,33 @@ mod factory_tests {
         let items = run(&sources(vfs));
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
         assert_eq!(records.len(), 1);
-        assert_eq!(field(records[0], field::ANACRON_TIMESTAMP_RAW), Some("20250131"));
+        assert_eq!(
+            field(records[0], field::ANACRON_TIMESTAMP_RAW),
+            Some("20250131")
+        );
     }
 
     #[test]
     fn a_systemd_timer_without_an_explicit_unit_resolves_the_default_same_name_service() {
         let bytes = b"[Unit]\nDescription=Backup timer\n\n[Timer]\nOnCalendar=daily\n\n[Install]\nWantedBy=timers.target\n";
-        let vfs = InMemoryVirtualFileSystem::new().with_file("etc/systemd/system/backup.timer", bytes.to_vec());
+        let vfs = InMemoryVirtualFileSystem::new()
+            .with_file("etc/systemd/system/backup.timer", bytes.to_vec());
         let items = run(&sources(vfs));
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
         assert!(!records.is_empty());
-        assert!(records.iter().all(|r| field(r, field::TIMER_TARGET_SERVICE) == Some("backup.service")));
-        assert!(records.iter().all(|r| field(r, field::TIMER_TARGET_SOURCE) == Some("default_same_name")));
+        assert!(records
+            .iter()
+            .all(|r| field(r, field::TIMER_TARGET_SERVICE) == Some("backup.service")));
+        assert!(records
+            .iter()
+            .all(|r| field(r, field::TIMER_TARGET_SOURCE) == Some("default_same_name")));
     }
 
     #[test]
     fn a_systemd_timer_with_an_explicit_unit_overrides_the_default() {
         let bytes = b"[Timer]\nOnCalendar=daily\nUnit=other.service\n";
-        let vfs = InMemoryVirtualFileSystem::new().with_file("etc/systemd/system/backup.timer", bytes.to_vec());
+        let vfs = InMemoryVirtualFileSystem::new()
+            .with_file("etc/systemd/system/backup.timer", bytes.to_vec());
         let items = run(&sources(vfs));
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
         assert!(records.iter().any(|r| {
@@ -906,19 +1008,24 @@ mod factory_tests {
 
     #[test]
     fn allow_deny_entries_carry_the_username_and_file_kind() {
-        let vfs = InMemoryVirtualFileSystem::new().with_file("etc/cron.allow", b"alice\nbob\n".to_vec());
+        let vfs =
+            InMemoryVirtualFileSystem::new().with_file("etc/cron.allow", b"alice\nbob\n".to_vec());
         let items = run(&sources(vfs));
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
         assert_eq!(records.len(), 2);
         assert_eq!(field(records[0], USER_NAME), Some("alice"));
-        assert_eq!(field(records[0], field::ALLOW_DENY_KIND), Some("cron_allow"));
+        assert_eq!(
+            field(records[0], field::ALLOW_DENY_KIND),
+            Some("cron_allow")
+        );
     }
 
     #[test]
     fn a_file_reached_only_through_the_group_definition_is_still_classified_precisely() {
         // `LinuxScheduleFiles` names no files of its own; its resolution returns files tagged
         // with the real leaf definition, which this parser classifies just like a direct hit.
-        let vfs = InMemoryVirtualFileSystem::new().with_file("etc/anacrontab", b"1 5 job.id /bin/true\n".to_vec());
+        let vfs = InMemoryVirtualFileSystem::new()
+            .with_file("etc/anacrontab", b"1 5 job.id /bin/true\n".to_vec());
         let items = run(&sources(vfs));
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
         assert_eq!(records.len(), 1);

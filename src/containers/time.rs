@@ -153,20 +153,29 @@ mod tests {
     fn parses_a_zulu_timestamp_with_nanoseconds() {
         let ts = parse_rfc3339_nano("2023-11-15T12:34:56.123456789Z").unwrap();
         // 2023-11-15T12:34:56Z is 1700051696 unix seconds; +123456 micros (truncated from nanos).
-        assert_eq!(ts, ForensicTimestamp::from_unix_micros(1_700_051_696_123_456));
+        assert_eq!(
+            ts,
+            ForensicTimestamp::from_unix_micros(1_700_051_696_123_456)
+        );
     }
 
     #[test]
     fn parses_a_timestamp_with_no_fraction() {
         let ts = parse_rfc3339_nano("2023-11-15T12:34:56Z").unwrap();
-        assert_eq!(ts, ForensicTimestamp::from_unix_micros(1_700_051_696_000_000));
+        assert_eq!(
+            ts,
+            ForensicTimestamp::from_unix_micros(1_700_051_696_000_000)
+        );
     }
 
     #[test]
     fn pads_a_short_fraction_instead_of_misreading_its_scale() {
         // ".5" means 500ms, not 5ns -- a short fraction must be treated as the *leading* digits.
         let ts = parse_rfc3339_nano("2023-11-15T12:34:56.5Z").unwrap();
-        assert_eq!(ts, ForensicTimestamp::from_unix_micros(1_700_051_696_500_000));
+        assert_eq!(
+            ts,
+            ForensicTimestamp::from_unix_micros(1_700_051_696_500_000)
+        );
     }
 
     #[test]

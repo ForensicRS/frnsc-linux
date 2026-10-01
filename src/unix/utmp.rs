@@ -456,8 +456,11 @@ pub struct UtmpParserFactory {
 
 impl Default for UtmpParserFactory {
     fn default() -> Self {
-        let requirements: Vec<Requirement> =
-            DEFINITIONS.iter().copied().map(Requirement::artifact).collect();
+        let requirements: Vec<Requirement> = DEFINITIONS
+            .iter()
+            .copied()
+            .map(Requirement::artifact)
+            .collect();
         Self {
             descriptor: ParserDescriptor::new(
                 PARSER_ID,
@@ -493,7 +496,10 @@ impl ArtifactParserFactory for UtmpParserFactory {
 
     fn open(&self, ctx: &ParseContext<'_>) -> ForensicResult<ParserRun> {
         let fs = ctx.vfs().cloned().ok_or_else(|| {
-            ForensicError::missing_data("FileSystem source required", CompactString::const_new(PARSER_ID))
+            ForensicError::missing_data(
+                "FileSystem source required",
+                CompactString::const_new(PARSER_ID),
+            )
         })?;
         if ctx.sources().catalog().is_none() {
             return Err(ForensicError::missing_data(
@@ -536,7 +542,10 @@ impl ArtifactParserFactory for UtmpParserFactory {
             }
             for file in resolution.files {
                 if file.directory {
-                    debug!("{PARSER_ID}: {definition}: ignoring directory {}", file.path);
+                    debug!(
+                        "{PARSER_ID}: {definition}: ignoring directory {}",
+                        file.path
+                    );
                     continue;
                 }
                 if let Some(first) = targets.get(&file.path) {
@@ -847,7 +856,10 @@ mod tests {
         assert_eq!(record.session, 42);
         assert_eq!(record.tv_sec, 1_700_000_000);
         assert_eq!(record.tv_usec, 500_000);
-        assert_eq!(record.addr_v6, [u32::from_be_bytes([127, 0, 0, 1]), 0, 0, 0]);
+        assert_eq!(
+            record.addr_v6,
+            [u32::from_be_bytes([127, 0, 0, 1]), 0, 0, 0]
+        );
     }
 
     #[test]
@@ -943,7 +955,11 @@ mod tests {
         // wrong instead.
         assert_eq!(result.records.len(), 1);
         let record = result.records[0].as_ref().unwrap();
-        assert_eq!(record.user(), "carol", "fields before offset 336 are unaffected");
+        assert_eq!(
+            record.user(),
+            "carol",
+            "fields before offset 336 are unaffected"
+        );
         assert_ne!(
             record.tv_sec, 1_700_000_000,
             "fields at/after offset 336 are misread once the layout is wrong"
@@ -1042,7 +1058,11 @@ mod tests {
         let result = scan_lastlog_records(&bytes);
         assert_eq!(result.records.len(), 3);
         assert_eq!(result.trailing_partial_bytes, 100);
-        let uids: Vec<u32> = result.records.iter().map(|r| r.as_ref().unwrap().uid).collect();
+        let uids: Vec<u32> = result
+            .records
+            .iter()
+            .map(|r| r.as_ref().unwrap().uid)
+            .collect();
         assert_eq!(uids, vec![0, 1, 2]);
         assert!(result.records[0].as_ref().unwrap().never_logged_in());
         assert!(!result.records[1].as_ref().unwrap().never_logged_in());
@@ -1086,10 +1106,7 @@ mod factory_tests {
 
     fn catalog() -> Arc<dyn ArtifactCatalog> {
         let defs = vec![
-            definition(
-                LASTLOG_DEF,
-                &[Cow::Borrowed("/var/log/lastlog")],
-            ),
+            definition(LASTLOG_DEF, &[Cow::Borrowed("/var/log/lastlog")]),
             definition(
                 UTMP_DEF,
                 &[
@@ -1148,7 +1165,9 @@ mod factory_tests {
             .collect();
         assert_eq!(declared, DEFINITIONS.to_vec());
         assert!(!parser.descriptor().artifacts.is_empty());
-        assert!(parser.descriptor().handles(&Artifact::Linux(LinuxArtifacts::Utmp)));
+        assert!(parser
+            .descriptor()
+            .handles(&Artifact::Linux(LinuxArtifacts::Utmp)));
     }
 
     #[test]
@@ -1160,9 +1179,16 @@ mod factory_tests {
         assert!(
             items.iter().all(|i| i.is_ok()),
             "unexpected error items: {:?}",
-            items.iter().filter_map(|i| i.as_ref().err()).collect::<Vec<_>>()
+            items
+                .iter()
+                .filter_map(|i| i.as_ref().err())
+                .collect::<Vec<_>>()
         );
-        assert_eq!(records.len(), 1, "one file matching several definitions is read once");
+        assert_eq!(
+            records.len(),
+            1,
+            "one file matching several definitions is read once"
+        );
         assert_eq!(
             field(records[0], ARTIFACT_DEFINITION),
             Some(UTMP_DEF),
@@ -1230,9 +1256,16 @@ mod factory_tests {
         assert!(
             items.iter().all(|i| i.is_ok()),
             "unexpected error items: {:?}",
-            items.iter().filter_map(|i| i.as_ref().err()).collect::<Vec<_>>()
+            items
+                .iter()
+                .filter_map(|i| i.as_ref().err())
+                .collect::<Vec<_>>()
         );
-        assert_eq!(records.len(), 1, "the never-logged-in uid 0 slot must not appear");
+        assert_eq!(
+            records.len(),
+            1,
+            "the never-logged-in uid 0 slot must not appear"
+        );
         assert_eq!(records[0].field_as_u64(field::LASTLOG_UID), Some(1));
         assert_eq!(field(records[0], ARTIFACT_DEFINITION), Some(LASTLOG_DEF));
     }
@@ -1250,14 +1283,20 @@ mod factory_tests {
         let errors: Vec<&ForensicError> = items.iter().filter_map(|i| i.as_ref().err()).collect();
         assert_eq!(records.len(), 1, "the slot's data must still be emitted");
         assert_eq!(records[0].field_as_u64(field::LASTLOG_UID), Some(0));
-        assert_eq!(errors.len(), 1, "the anomaly must be surfaced, not silently dropped");
+        assert_eq!(
+            errors.len(),
+            1,
+            "the anomaly must be surfaced, not silently dropped"
+        );
         assert!(errors[0].to_string().contains("uid 0"));
     }
 
     #[test]
     fn without_a_catalog_the_parser_declines_instead_of_guessing_paths() {
-        let vfs = InMemoryVirtualFileSystem::new()
-            .with_file("var/log/wtmp", sample_record_bytes(UtmpLayout::Narrow32, b"x", b""));
+        let vfs = InMemoryVirtualFileSystem::new().with_file(
+            "var/log/wtmp",
+            sample_record_bytes(UtmpLayout::Narrow32, b"x", b""),
+        );
         let sources = sources(vfs, false);
         let triage = TriageContext::new("TEST-HOST", "default");
         let cancellation = CancellationToken::new();

@@ -36,7 +36,11 @@ use crate::text;
 pub const PARSER_ID: &str = "linux.ssh";
 
 /// The ForensicArtifacts definitions this parser reads, in the order it declares them.
-pub const DEFINITIONS: &[&str] = &["SSHAuthorizedKeysFiles", "SSHKnownHostsFiles", "SSHHostPubKeys"];
+pub const DEFINITIONS: &[&str] = &[
+    "SSHAuthorizedKeysFiles",
+    "SSHKnownHostsFiles",
+    "SSHHostPubKeys",
+];
 
 /// Recognized SSH public-key algorithm identifiers (plain and `-cert-v01@openssh.com` forms). A
 /// token outside this set is never assumed to be a key type — see [`is_known_keytype`].
@@ -157,7 +161,10 @@ fn parse_pubkey_tokens(
             }
         }
     }
-    let keytype = tokens.get(idx).ok_or_else(|| "missing key type".to_string())?.clone();
+    let keytype = tokens
+        .get(idx)
+        .ok_or_else(|| "missing key type".to_string())?
+        .clone();
     if !is_known_keytype(&keytype) {
         return Err(format!("unrecognized key type {keytype:?}"));
     }
@@ -165,7 +172,10 @@ fn parse_pubkey_tokens(
         .get(idx + 1)
         .ok_or_else(|| "missing key data".to_string())?
         .clone();
-    let comment = tokens.get(idx + 2..).map(|c| c.join(" ")).unwrap_or_default();
+    let comment = tokens
+        .get(idx + 2..)
+        .map(|c| c.join(" "))
+        .unwrap_or_default();
     Ok((options, keytype, key, comment))
 }
 
@@ -173,7 +183,9 @@ fn parse_pubkey_tokens(
 /// (`SHA256:` + unpadded base64). `None` when `base64_key` does not even decode as base64 — the
 /// caller still keeps the raw line, so nothing is lost by not fingerprinting it.
 fn key_fingerprint(base64_key: &str) -> Option<String> {
-    let decoded = base64::engine::general_purpose::STANDARD.decode(base64_key).ok()?;
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(base64_key)
+        .ok()?;
     let digest = Sha256::digest(&decoded);
     let encoded = base64::engine::general_purpose::STANDARD_NO_PAD.encode(digest);
     Some(format!("SHA256:{encoded}"))
@@ -223,13 +235,14 @@ fn authorized_key_record(
 ) -> ForensicResult<ForensicData> {
     let raw = line.text();
     let trimmed = raw.trim();
-    let (options, keytype, key, comment) = parse_pubkey_tokens(trimmed, true).map_err(|reason| {
-        ForensicError::invalid_format(
-            "authorized_keys line",
-            format!("line {}: {reason}", line.number),
-        )
-        .with_path(path.to_owned())
-    })?;
+    let (options, keytype, key, comment) =
+        parse_pubkey_tokens(trimmed, true).map_err(|reason| {
+            ForensicError::invalid_format(
+                "authorized_keys line",
+                format!("line {}: {reason}", line.number),
+            )
+            .with_path(path.to_owned())
+        })?;
 
     let provenance = source.mint(acquisition, Recovery::Allocated);
     let mut data = ForensicData::new(host, Artifact::Linux(LinuxArtifacts::Ssh), provenance);
@@ -358,8 +371,11 @@ fn host_pub_key_record(
     let raw = line.text();
     let trimmed = raw.trim();
     let (_, keytype, key, comment) = parse_pubkey_tokens(trimmed, false).map_err(|reason| {
-        ForensicError::invalid_format("ssh host public key", format!("line {}: {reason}", line.number))
-            .with_path(path.to_owned())
+        ForensicError::invalid_format(
+            "ssh host public key",
+            format!("line {}: {reason}", line.number),
+        )
+        .with_path(path.to_owned())
     })?;
 
     let provenance = source.mint(acquisition, Recovery::Allocated);
@@ -382,8 +398,11 @@ pub struct SshParserFactory {
 
 impl Default for SshParserFactory {
     fn default() -> Self {
-        let requirements: Vec<Requirement> =
-            DEFINITIONS.iter().copied().map(Requirement::artifact).collect();
+        let requirements: Vec<Requirement> = DEFINITIONS
+            .iter()
+            .copied()
+            .map(Requirement::artifact)
+            .collect();
         Self {
             descriptor: ParserDescriptor::new(
                 PARSER_ID,
@@ -426,7 +445,10 @@ impl ArtifactParserFactory for SshParserFactory {
 
     fn open(&self, ctx: &ParseContext<'_>) -> ForensicResult<ParserRun> {
         let fs = ctx.vfs().cloned().ok_or_else(|| {
-            ForensicError::missing_data("FileSystem source required", CompactString::const_new(PARSER_ID))
+            ForensicError::missing_data(
+                "FileSystem source required",
+                CompactString::const_new(PARSER_ID),
+            )
         })?;
         if ctx.sources().catalog().is_none() {
             return Err(ForensicError::missing_data(
@@ -480,7 +502,12 @@ impl ArtifactParserFactory for SshParserFactory {
             .into_iter()
             .map(|(path, (definition, sid))| {
                 let source = ctx.register_source(SourceKey::Path(path.as_str().to_string()));
-                Target { path, definition, sid, source }
+                Target {
+                    path,
+                    definition,
+                    sid,
+                    source,
+                }
             })
             .collect();
 
@@ -530,7 +557,13 @@ impl ArtifactParserFactory for SshParserFactory {
                             &target.source,
                             acquisition,
                         ),
-                        _ => host_pub_key_record(&host, target.path.as_path(), &line, &target.source, acquisition),
+                        _ => host_pub_key_record(
+                            &host,
+                            target.path.as_path(),
+                            &line,
+                            &target.source,
+                            acquisition,
+                        ),
                     };
                     if out.emit(result).is_stop() {
                         return Ok(());
@@ -559,8 +592,11 @@ mod tests {
 
     #[test]
     fn parses_an_authorized_keys_line_without_options() {
-        let (options, keytype, key, comment) =
-            parse_pubkey_tokens("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI bob@example.com", true).unwrap();
+        let (options, keytype, key, comment) = parse_pubkey_tokens(
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI bob@example.com",
+            true,
+        )
+        .unwrap();
         assert!(options.is_none());
         assert_eq!(keytype, "ssh-ed25519");
         assert_eq!(key, "AAAAC3NzaC1lZDI1NTE5AAAAI");
@@ -573,7 +609,10 @@ mod tests {
         let (options, keytype, key, comment) = parse_pubkey_tokens(line, true).unwrap();
         let options = options.unwrap();
         let opts = split_options(&options);
-        assert_eq!(option_value(&opts, "command="), Some("/usr/bin/rrsync /backup"));
+        assert_eq!(
+            option_value(&opts, "command="),
+            Some("/usr/bin/rrsync /backup")
+        );
         assert_eq!(option_value(&opts, "from="), Some("10.0.0.0/8"));
         assert!(opts.iter().any(|o| o == "no-pty"));
         assert_eq!(keytype, "ssh-rsa");
@@ -588,7 +627,8 @@ mod tests {
 
     #[test]
     fn host_pub_keys_never_parse_an_options_field() {
-        let (options, keytype, _, _) = parse_pubkey_tokens("ssh-rsa AAAAB3NzaC1yc2E", false).unwrap();
+        let (options, keytype, _, _) =
+            parse_pubkey_tokens("ssh-rsa AAAAB3NzaC1yc2E", false).unwrap();
         assert!(options.is_none());
         assert_eq!(keytype, "ssh-rsa");
     }
@@ -603,12 +643,18 @@ mod tests {
             derive_user_from_ssh_path(FPath::new("/root/.ssh/authorized_keys")),
             Some("root".to_string())
         );
-        assert_eq!(derive_user_from_ssh_path(FPath::new("/etc/ssh/ssh_host_rsa_key.pub")), None);
+        assert_eq!(
+            derive_user_from_ssh_path(FPath::new("/etc/ssh/ssh_host_rsa_key.pub")),
+            None
+        );
     }
 
     #[test]
     fn a_real_sid_binding_beats_the_path_guess() {
-        let (user, source) = resolve_user(Some("alice"), FPath::new("/home/alice/.ssh/authorized_keys"));
+        let (user, source) = resolve_user(
+            Some("alice"),
+            FPath::new("/home/alice/.ssh/authorized_keys"),
+        );
         assert_eq!(user.as_deref(), Some("alice"));
         assert_eq!(source, Some("catalog"));
         let (user, source) = resolve_user(None, FPath::new("/home/bob/.ssh/authorized_keys"));
@@ -657,13 +703,22 @@ mod factory_tests {
         let defs = vec![
             definition(
                 AUTH_KEYS_DEF,
-                &[Cow::Borrowed("/home/*/.ssh/authorized_keys"), Cow::Borrowed("/root/.ssh/authorized_keys")],
+                &[
+                    Cow::Borrowed("/home/*/.ssh/authorized_keys"),
+                    Cow::Borrowed("/root/.ssh/authorized_keys"),
+                ],
             ),
             definition(
                 KNOWN_HOSTS_DEF,
-                &[Cow::Borrowed("/home/*/.ssh/known_hosts"), Cow::Borrowed("/etc/ssh/known_hosts")],
+                &[
+                    Cow::Borrowed("/home/*/.ssh/known_hosts"),
+                    Cow::Borrowed("/etc/ssh/known_hosts"),
+                ],
             ),
-            definition(HOST_PUB_KEYS_DEF, &[Cow::Borrowed("/etc/ssh/ssh_host_*_key.pub")]),
+            definition(
+                HOST_PUB_KEYS_DEF,
+                &[Cow::Borrowed("/etc/ssh/ssh_host_*_key.pub")],
+            ),
         ];
         Arc::new(SliceCatalog::new(defs).unwrap())
     }
@@ -715,19 +770,26 @@ mod factory_tests {
         assert!(
             items.iter().all(|i| i.is_ok()),
             "unexpected errors: {:?}",
-            items.iter().filter_map(|i| i.as_ref().err()).collect::<Vec<_>>()
+            items
+                .iter()
+                .filter_map(|i| i.as_ref().err())
+                .collect::<Vec<_>>()
         );
         assert_eq!(records.len(), 1);
         assert_eq!(field(records[0], USER_NAME), Some("alice"));
         assert_eq!(field(records[0], field::USER_SOURCE), Some("path"));
-        assert!(field(records[0], field::KEY_FINGERPRINT).unwrap().starts_with("SHA256:"));
+        assert!(field(records[0], field::KEY_FINGERPRINT)
+            .unwrap()
+            .starts_with("SHA256:"));
     }
 
     #[test]
     fn authorized_key_persistence_relevant_options_are_extracted() {
         let line = r#"command="/bin/false",no-pty ssh-rsa QUJDRA== restricted"#;
-        let vfs = InMemoryVirtualFileSystem::new()
-            .with_file("root/.ssh/authorized_keys", format!("{line}\n").into_bytes());
+        let vfs = InMemoryVirtualFileSystem::new().with_file(
+            "root/.ssh/authorized_keys",
+            format!("{line}\n").into_bytes(),
+        );
         let items = run(&sources(vfs));
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
         assert_eq!(records.len(), 1);
@@ -740,12 +802,16 @@ mod factory_tests {
     fn a_hashed_known_hosts_entry_is_reported_as_hashed_not_resolved() {
         let hashed_host = "|1|Y2xlYXJzYWx0|aGFzaHZhbHVlaGFzaHZhbHVlaGFzaA==";
         let line = format!("{hashed_host} ssh-rsa QUJDRA==\n");
-        let vfs = InMemoryVirtualFileSystem::new().with_file("etc/ssh/known_hosts", line.into_bytes());
+        let vfs =
+            InMemoryVirtualFileSystem::new().with_file("etc/ssh/known_hosts", line.into_bytes());
         let items = run(&sources(vfs));
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
         assert_eq!(records.len(), 1);
         assert_eq!(field(records[0], field::HOST_RAW), Some(hashed_host));
-        assert!(field(records[0], field::HOST_PATTERNS).is_none(), "a hashed entry is not split as patterns");
+        assert!(
+            field(records[0], field::HOST_PATTERNS).is_none(),
+            "a hashed entry is not split as patterns"
+        );
     }
 
     #[test]
@@ -762,8 +828,10 @@ mod factory_tests {
 
     #[test]
     fn a_host_public_key_has_no_user_and_no_options() {
-        let vfs = InMemoryVirtualFileSystem::new()
-            .with_file("etc/ssh/ssh_host_ed25519_key.pub", b"ssh-ed25519 QUJDRA== root@host\n".to_vec());
+        let vfs = InMemoryVirtualFileSystem::new().with_file(
+            "etc/ssh/ssh_host_ed25519_key.pub",
+            b"ssh-ed25519 QUJDRA== root@host\n".to_vec(),
+        );
         let items = run(&sources(vfs));
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
         assert_eq!(records.len(), 1);
@@ -773,8 +841,10 @@ mod factory_tests {
 
     #[test]
     fn a_malformed_line_is_an_err_item_not_a_silent_skip() {
-        let vfs = InMemoryVirtualFileSystem::new()
-            .with_file("root/.ssh/authorized_keys", b"this-is-not-a-key-line\n".to_vec());
+        let vfs = InMemoryVirtualFileSystem::new().with_file(
+            "root/.ssh/authorized_keys",
+            b"this-is-not-a-key-line\n".to_vec(),
+        );
         let items = run(&sources(vfs));
         assert_eq!(items.len(), 1);
         assert!(items[0].is_err());

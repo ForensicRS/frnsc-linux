@@ -32,7 +32,13 @@ pub const PARSER_ID: &str = "linux.packages";
 
 /// The ForensicArtifacts definitions this parser reads, sorted for deterministic requirement
 /// order. The catalog is the source of truth for *where* these files live.
-pub const DEFINITIONS: &[&str] = &["APTSources", "AptitudeLogFiles", "DebianPackagesLogFiles", "DebianPackagesStatus", "YumSources"];
+pub const DEFINITIONS: &[&str] = &[
+    "APTSources",
+    "AptitudeLogFiles",
+    "DebianPackagesLogFiles",
+    "DebianPackagesStatus",
+    "YumSources",
+];
 
 /// Which of the five shapes a [`DEFINITIONS`] entry is parsed as.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,7 +102,10 @@ fn none_token(s: &str) -> Option<String> {
 
 fn split_pkg_arch(token: &str) -> (Option<String>, Option<String>) {
     match token.rfind(':') {
-        Some(i) => (token.get(..i).map(str::to_string), token.get(i + 1..).map(str::to_string)),
+        Some(i) => (
+            token.get(..i).map(str::to_string),
+            token.get(i + 1..).map(str::to_string),
+        ),
         None => (Some(token.to_string()), None),
     }
 }
@@ -192,7 +201,12 @@ fn parse_dpkg_status_stanza(lines: &[String]) -> PackageRecord {
     let action = fields.get("Status").cloned();
     let extra: Vec<(String, String)> = fields
         .into_iter()
-        .filter(|(k, _)| !matches!(k.as_str(), "Package" | "Version" | "Architecture" | "Status"))
+        .filter(|(k, _)| {
+            !matches!(
+                k.as_str(),
+                "Package" | "Version" | "Architecture" | "Status"
+            )
+        })
         .collect();
     PackageRecord {
         timestamp: None,
@@ -206,11 +220,15 @@ fn parse_dpkg_status_stanza(lines: &[String]) -> PackageRecord {
     }
 }
 
-const MONTH_ABBREVS: [&str; 12] =
-    ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTH_ABBREVS: [&str; 12] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
 
 fn month_index(name: &str) -> Option<u8> {
-    MONTH_ABBREVS.iter().position(|m| m.eq_ignore_ascii_case(name)).map(|i| (i + 1) as u8)
+    MONTH_ABBREVS
+        .iter()
+        .position(|m| m.eq_ignore_ascii_case(name))
+        .map(|i| (i + 1) as u8)
 }
 
 /// Detects the `"Aptitude <version>: log report"` banner every session opens with, printed one
@@ -251,7 +269,17 @@ fn parse_aptitude_session_timestamp(text: &str) -> Option<i64> {
     let oh: i16 = tz.get(1..3)?.parse().ok()?;
     let om: i16 = tz.get(3..5)?.parse().ok()?;
     let offset = sign * (oh * 60 + om);
-    let ts = ForensicTimestamp::try_with_ymd_and_hms_nanos(year as i64, month, day, hour, minute, second, 0, Some(offset)).ok()?;
+    let ts = ForensicTimestamp::try_with_ymd_and_hms_nanos(
+        year as i64,
+        month,
+        day,
+        hour,
+        minute,
+        second,
+        0,
+        Some(offset),
+    )
+    .ok()?;
     Some(ts.to_unix_secs())
 }
 
@@ -303,15 +331,25 @@ fn parse_apt_sources_line(text: &str) -> Option<PackageRecord> {
     }
     let mut rest: Vec<&str> = tokens.collect();
     let mut options = None;
-    if rest.first().is_some_and(|t| t.starts_with('[') && t.ends_with(']')) {
+    if rest
+        .first()
+        .is_some_and(|t| t.starts_with('[') && t.ends_with(']'))
+    {
         options = Some(rest.remove(0).to_string());
     }
     if rest.is_empty() {
         return None;
     }
     let uri = rest.remove(0).to_string();
-    let distribution = if rest.is_empty() { None } else { Some(rest.remove(0).to_string()) };
-    let mut extra = vec![("kind".to_string(), kind.to_string()), ("uri".to_string(), uri)];
+    let distribution = if rest.is_empty() {
+        None
+    } else {
+        Some(rest.remove(0).to_string())
+    };
+    let mut extra = vec![
+        ("kind".to_string(), kind.to_string()),
+        ("uri".to_string(), uri),
+    ];
     if let Some(options) = options {
         extra.push(("options".to_string(), options));
     }
@@ -321,7 +359,11 @@ fn parse_apt_sources_line(text: &str) -> Option<PackageRecord> {
     if !rest.is_empty() {
         extra.push(("components".to_string(), rest.join(" ")));
     }
-    Some(PackageRecord { raw: text.to_string(), extra, ..Default::default() })
+    Some(PackageRecord {
+        raw: text.to_string(),
+        extra,
+        ..Default::default()
+    })
 }
 
 /// One `[repo-id]` INI section from a yum/dnf `.repo` file.
@@ -346,7 +388,11 @@ fn parse_yum_repo_section(header: &str, lines: &[String]) -> Option<PackageRecor
     }
     let mut raw = vec![header.to_string()];
     raw.extend(lines.iter().cloned());
-    Some(PackageRecord { raw: raw.join("\n"), extra, ..Default::default() })
+    Some(PackageRecord {
+        raw: raw.join("\n"),
+        extra,
+        ..Default::default()
+    })
 }
 
 fn lossy_text_lines(lines: &[TextLine<'_>]) -> Vec<String> {
@@ -376,7 +422,10 @@ fn split_stanzas(lines: &[String]) -> Vec<Vec<String>> {
 /// records plus how many non-blank input lines failed to parse (only meaningful for the two
 /// line-per-record formats; stanza/section-based formats either produce a record or skip
 /// something that was never a record to begin with, so their `failed` is always 0).
-fn parse_records(format: PackagesFormat, lines: &[TextLine<'_>]) -> (Vec<PackageRecord>, usize, usize) {
+fn parse_records(
+    format: PackagesFormat,
+    lines: &[TextLine<'_>],
+) -> (Vec<PackageRecord>, usize, usize) {
     match format {
         PackagesFormat::DpkgLog => {
             let mut records = Vec::new();
@@ -398,7 +447,10 @@ fn parse_records(format: PackagesFormat, lines: &[TextLine<'_>]) -> (Vec<Package
         PackagesFormat::DpkgStatus => {
             let text_lines = lossy_text_lines(lines);
             let stanzas = split_stanzas(&text_lines);
-            let records = stanzas.iter().map(|s| parse_dpkg_status_stanza(s)).collect();
+            let records = stanzas
+                .iter()
+                .map(|s| parse_dpkg_status_stanza(s))
+                .collect();
             (records, 0, 0)
         }
         PackagesFormat::AptitudeLog => {
@@ -513,7 +565,10 @@ fn record_to_forensic_data(
         data.set(PACKAGE_ARCHITECTURE, arch.clone());
     }
     for (key, value) in &record.extra {
-        data.insert(Text::Owned(format!("{}{key}", field::EXTRA_PREFIX)), Field::Text(Text::Owned(value.clone())));
+        data.insert(
+            Text::Owned(format!("{}{key}", field::EXTRA_PREFIX)),
+            Field::Text(Text::Owned(value.clone())),
+        );
     }
     data
 }
@@ -526,7 +581,11 @@ pub struct PackagesParserFactory {
 
 impl Default for PackagesParserFactory {
     fn default() -> Self {
-        let requirements: Vec<Requirement> = DEFINITIONS.iter().copied().map(Requirement::artifact).collect();
+        let requirements: Vec<Requirement> = DEFINITIONS
+            .iter()
+            .copied()
+            .map(Requirement::artifact)
+            .collect();
         Self {
             descriptor: ParserDescriptor::new(
                 PARSER_ID,
@@ -558,7 +617,10 @@ impl ArtifactParserFactory for PackagesParserFactory {
 
     fn open(&self, ctx: &ParseContext<'_>) -> ForensicResult<ParserRun> {
         let fs = ctx.vfs().cloned().ok_or_else(|| {
-            ForensicError::missing_data("FileSystem source required", CompactString::const_new(PARSER_ID))
+            ForensicError::missing_data(
+                "FileSystem source required",
+                CompactString::const_new(PARSER_ID),
+            )
         })?;
         if ctx.sources().catalog().is_none() {
             return Err(ForensicError::missing_data(
@@ -585,7 +647,10 @@ impl ArtifactParserFactory for PackagesParserFactory {
             head.extend(resolution.unresolved.into_iter().map(|u| {
                 Err(ForensicError::other(
                     "catalog",
-                    format!("{definition}: source {:?} was not searched: {}", u.source, u.reason),
+                    format!(
+                        "{definition}: source {:?} was not searched: {}",
+                        u.source, u.reason
+                    ),
                 ))
             }));
             for note in &resolution.notes {
@@ -593,7 +658,10 @@ impl ArtifactParserFactory for PackagesParserFactory {
             }
             for file in resolution.files {
                 if file.directory {
-                    debug!("{PARSER_ID}: {definition}: ignoring directory {}", file.path);
+                    debug!(
+                        "{PARSER_ID}: {definition}: ignoring directory {}",
+                        file.path
+                    );
                     continue;
                 }
                 if let Some(first) = targets.get(&file.path) {
@@ -641,13 +709,25 @@ impl ArtifactParserFactory for PackagesParserFactory {
                     if cancellation.is_cancelled() {
                         return Ok(());
                     }
-                    let data =
-                        record_to_forensic_data(&host, definition, format, path.as_path(), &source, acquisition, record);
+                    let data = record_to_forensic_data(
+                        &host,
+                        definition,
+                        format,
+                        path.as_path(),
+                        &source,
+                        acquisition,
+                        record,
+                    );
                     if out.emit(Ok(data)).is_stop() {
                         return Ok(());
                     }
                 }
-                if let Some(e) = crate::log::text::systematic_parse_failure(path.as_path(), format.as_str(), total, failed) {
+                if let Some(e) = crate::log::text::systematic_parse_failure(
+                    path.as_path(),
+                    format.as_str(),
+                    total,
+                    failed,
+                ) {
                     if out.emit(Err(e)).is_stop() {
                         return Ok(());
                     }
@@ -660,10 +740,13 @@ impl ArtifactParserFactory for PackagesParserFactory {
 
 fn read_file(fs: &dyn FileSystem, path: &FPath) -> ForensicResult<Vec<u8>> {
     use std::io::Read;
-    let mut file = fs.open(path).map_err(|e| e.with_path(FPathBuf::from(path.as_str())))?;
+    let mut file = fs
+        .open(path)
+        .map_err(|e| e.with_path(FPathBuf::from(path.as_str())))?;
     let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)
-        .map_err(|e| ForensicError::io_error_with_source(e, format!("{PARSER_ID}: reading {path}")))?;
+    file.read_to_end(&mut bytes).map_err(|e| {
+        ForensicError::io_error_with_source(e, format!("{PARSER_ID}: reading {path}"))
+    })?;
     Ok(bytes)
 }
 
@@ -688,7 +771,10 @@ mod tests {
         assert_eq!(records[0].package_name.as_deref(), Some("curl"));
         assert_eq!(records[0].package_architecture.as_deref(), Some("amd64"));
         assert_eq!(records[0].package_version_old, None);
-        assert_eq!(records[0].package_version.as_deref(), Some("7.81.0-1ubuntu1.4"));
+        assert_eq!(
+            records[0].package_version.as_deref(),
+            Some("7.81.0-1ubuntu1.4")
+        );
         assert_eq!(records[1].action.as_deref(), Some("status"));
         assert_eq!(records[1].package_name.as_deref(), Some("curl"));
     }
@@ -701,7 +787,11 @@ mod tests {
         assert_eq!(records.len(), 2);
         assert_eq!(records[0].package_name.as_deref(), Some("curl"));
         assert_eq!(records[0].action.as_deref(), Some("install ok installed"));
-        let description = records[0].extra.iter().find(|(k, _)| k == "Description").unwrap();
+        let description = records[0]
+            .extra
+            .iter()
+            .find(|(k, _)| k == "Description")
+            .unwrap();
         assert!(description.1.contains("a longer explanation"));
         assert_eq!(records[1].package_name.as_deref(), Some("bash"));
     }
@@ -715,10 +805,19 @@ mod tests {
         assert!(records[0].timestamp.is_some());
         assert_eq!(records[0].action.as_deref(), Some("INSTALL"));
         assert_eq!(records[0].package_version_old, None);
-        assert_eq!(records[0].package_version.as_deref(), Some("7.81.0-1ubuntu1.4"));
+        assert_eq!(
+            records[0].package_version.as_deref(),
+            Some("7.81.0-1ubuntu1.4")
+        );
         assert_eq!(records[1].action.as_deref(), Some("UPGRADE"));
-        assert_eq!(records[1].package_version_old.as_deref(), Some("5.1-6ubuntu1"));
-        assert_eq!(records[1].package_version.as_deref(), Some("5.1-6ubuntu1.1"));
+        assert_eq!(
+            records[1].package_version_old.as_deref(),
+            Some("5.1-6ubuntu1")
+        );
+        assert_eq!(
+            records[1].package_version.as_deref(),
+            Some("5.1-6ubuntu1.1")
+        );
         assert_eq!(records[0].timestamp, records[1].timestamp);
     }
 
@@ -770,11 +869,20 @@ mod tests {
         assert_eq!(records.len(), 2);
         let first: BTreeMap<_, _> = records[0].extra.iter().cloned().collect();
         assert_eq!(first.get("kind").map(String::as_str), Some("deb"));
-        assert_eq!(first.get("uri").map(String::as_str), Some("http://archive.ubuntu.com/ubuntu"));
+        assert_eq!(
+            first.get("uri").map(String::as_str),
+            Some("http://archive.ubuntu.com/ubuntu")
+        );
         assert_eq!(first.get("distribution").map(String::as_str), Some("focal"));
-        assert_eq!(first.get("components").map(String::as_str), Some("main restricted"));
+        assert_eq!(
+            first.get("components").map(String::as_str),
+            Some("main restricted")
+        );
         let second: BTreeMap<_, _> = records[1].extra.iter().cloned().collect();
-        assert_eq!(second.get("options").map(String::as_str), Some("[arch=amd64]"));
+        assert_eq!(
+            second.get("options").map(String::as_str),
+            Some("[arch=amd64]")
+        );
     }
 
     #[test]
@@ -807,7 +915,10 @@ mod factory_tests {
             aliases: Cow::Borrowed(&[]),
             doc: Cow::Borrowed(""),
             sources: Cow::Owned(vec![SourceEntry {
-                source: ArtifactSource::File { paths: Cow::Borrowed(paths), separator: Separator::Slash },
+                source: ArtifactSource::File {
+                    paths: Cow::Borrowed(paths),
+                    separator: Separator::Slash,
+                },
                 supported_os: Cow::Borrowed(&[]),
             }]),
             supported_os: Cow::Borrowed(&[Os::Linux]),
@@ -819,15 +930,23 @@ mod factory_tests {
         let defs = vec![
             definition("APTSources", &[Cow::Borrowed("/etc/apt/sources.list")]),
             definition("AptitudeLogFiles", &[Cow::Borrowed("/var/log/aptitude")]),
-            definition("DebianPackagesLogFiles", &[Cow::Borrowed("/var/log/dpkg.log")]),
-            definition("DebianPackagesStatus", &[Cow::Borrowed("/var/lib/dpkg/status")]),
+            definition(
+                "DebianPackagesLogFiles",
+                &[Cow::Borrowed("/var/log/dpkg.log")],
+            ),
+            definition(
+                "DebianPackagesStatus",
+                &[Cow::Borrowed("/var/lib/dpkg/status")],
+            ),
             definition("YumSources", &[Cow::Borrowed("/etc/yum.repos.d/*.repo")]),
         ];
         Arc::new(SliceCatalog::new(defs).unwrap())
     }
 
     fn sources(vfs: InMemoryVirtualFileSystem, with_catalog: bool) -> TriageSources {
-        let mut builder = TriageSources::builder().vfs(Arc::new(vfs)).acquisition(Acquisition::ImageRead);
+        let mut builder = TriageSources::builder()
+            .vfs(Arc::new(vfs))
+            .acquisition(Acquisition::ImageRead);
         if with_catalog {
             builder = builder.catalog(catalog());
         }
@@ -867,10 +986,16 @@ mod factory_tests {
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
         assert_eq!(records.len(), 1);
         let record = records[0];
-        assert_eq!(record.artifact(), &Artifact::Linux(LinuxArtifacts::Packages));
+        assert_eq!(
+            record.artifact(),
+            &Artifact::Linux(LinuxArtifacts::Packages)
+        );
         assert_eq!(record.field_as_str(PACKAGE_NAME), Some("curl"));
         assert_eq!(record.field_as_str(PACKAGE_ARCHITECTURE), Some("amd64"));
-        assert_eq!(record.field_as_str(PACKAGE_VERSION), Some("7.81.0-1ubuntu1.4"));
+        assert_eq!(
+            record.field_as_str(PACKAGE_VERSION),
+            Some("7.81.0-1ubuntu1.4")
+        );
         assert_eq!(record.field_as_str(EVENT_ACTION), Some("install"));
         assert!(record.field_as_date(TIMESTAMP).is_some());
     }
@@ -878,17 +1003,22 @@ mod factory_tests {
     #[test]
     fn yum_repo_sections_emit_one_record_per_section() {
         let bytes = b"[base]\nname=Base\nenabled=1\n\n[updates]\nname=Updates\nenabled=0\n";
-        let vfs = InMemoryVirtualFileSystem::new().with_file("etc/yum.repos.d/base.repo", bytes.to_vec());
+        let vfs =
+            InMemoryVirtualFileSystem::new().with_file("etc/yum.repos.d/base.repo", bytes.to_vec());
         let items = run(&sources(vfs, true));
         let records: Vec<&ForensicData> = items.iter().filter_map(|i| i.as_ref().ok()).collect();
         assert_eq!(records.len(), 2);
         assert_eq!(records[0].field_as_str("linux.packages.id"), Some("base"));
-        assert_eq!(records[1].field_as_str("linux.packages.id"), Some("updates"));
+        assert_eq!(
+            records[1].field_as_str("linux.packages.id"),
+            Some("updates")
+        );
     }
 
     #[test]
     fn without_a_catalog_the_parser_declines_instead_of_guessing_paths() {
-        let vfs = InMemoryVirtualFileSystem::new().with_file("var/log/dpkg.log", b"whatever".to_vec());
+        let vfs =
+            InMemoryVirtualFileSystem::new().with_file("var/log/dpkg.log", b"whatever".to_vec());
         let sources = sources(vfs, false);
         let triage = TriageContext::new("TEST-HOST", "default");
         let cancellation = CancellationToken::new();
