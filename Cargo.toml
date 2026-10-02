@@ -40,7 +40,6 @@ zstd = ["journal", "dep:ruzstd"]
 xz = ["journal", "dep:lzma-rs"]
 
 [dev-dependencies]
-# Resolved by the forensic-bootstrap workspace. When this crate gets its own CI outside the
-# workspace, switch to the git form (the workspace patches it back to the local copy):
-#   forensic-testdata = { git = "https://github.com/ForensicRS/forensic-testenv" }
-forensic-testdata = { workspace = true }
+# Shared test corpus (forensic-testenv). The forensic-bootstrap workspace and the local
+# .cargo/config.toml patch it back to the sibling checkout.
+forensic-testdata = { git = "https://github.com/ForensicRS/forensic-testenv" }
